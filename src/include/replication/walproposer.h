@@ -258,7 +258,7 @@ struct WalMessage
 {
 	WalMessage* next;      /* L1 list of messages */
 	uint32 size;           /* message size */
-	uint32 ackMask;        /* mask of receivers acknowledged receiving of this message */
+	uint32 ackMask; /* mask of receivers acknowledged receiving of this message */
 	AppendRequestHeader req; /* request to walkeeper (message header) */
 
 	/* PHANTOM FIELD:
@@ -321,7 +321,12 @@ typedef struct WalKeeper
 	WalKeeperState     state;         /* walkeeper state machine state */
 	AcceptorGreeting   greet;         /* acceptor greeting  */
 	VoteResponse	   voteResponse;  /* the vote */
-	AppendResponse  feedback;      /* feedback to master */
+	AppendResponse feedback;		  /* feedback to master */
+	/*
+	 * streaming must be started at the record boundary which is saved here, if
+	 * it differs from the chunk start
+	 */
+	XLogRecPtr startStreamingAt;
 } WalKeeper;
 
 

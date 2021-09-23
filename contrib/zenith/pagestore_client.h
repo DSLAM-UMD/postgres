@@ -30,53 +30,94 @@ typedef enum
 	/* pagestore_client -> pagestore */
 	T_ZenithExistsRequest = 0,
 	T_ZenithNblocksRequest,
-	T_ZenithReadRequest,
+	T_ZenithGetPageRequest,
 
 	/* pagestore -> pagestore_client */
-	T_ZenithStatusResponse = 100,
+	T_ZenithExistsResponse = 100,
 	T_ZenithNblocksResponse,
-	T_ZenithReadResponse,
-}			ZenithMessageTag;
-
+	T_ZenithGetPageResponse,
+	T_ZenithErrorResponse,
+} ZenithMessageTag;
 
 /* base struct for c-style inheritance */
 typedef struct
 {
 	ZenithMessageTag tag;
-}			ZenithMessage;
+} ZenithMessage;
 
 #define messageTag(m)		(((const ZenithMessage *)(m))->tag)
 //#define prefetch_log(fmt, ...) elog(LOG, fmt,  ## __VA_ARGS__)
 #define prefetch_log(fmt, ...)
 
-extern char const *const ZenithMessageStr[];
+/*
+ * supertype of all the Zenith*Request structs below
+ *
+ * If 'latest' is true, we are requesting the latest page version, and 'lsn'
+ * is just a hint to the server that we know there are no versions of the page
+ * (or relation size, for exists/nblocks requests) later than the 'lsn'.
+ */
+typedef struct
+{
+	ZenithMessageTag tag;
+	bool		latest;			/* if true, request latest page version */
+	XLogRecPtr	lsn;			/* request page version @ this LSN */
+} ZenithRequest;
 
 typedef struct
 {
+	ZenithRequest req;
+	RelFileNode rnode;
+	ForkNumber	forknum;
+} ZenithExistsRequest;
+
+typedef struct
+{
+	ZenithRequest req;
+	RelFileNode rnode;
+	ForkNumber	forknum;
+} ZenithNblocksRequest;
+
+typedef struct
+{
+	ZenithRequest req;
 	RelFileNode rnode;
 	ForkNumber	forknum;
 	BlockNumber blkno;
-}			PageKey;
+} ZenithGetPageRequest;
+
+/* supertype of all the Zenith*Response structs below */
+typedef struct
+{
+	ZenithMessageTag tag;
+} ZenithResponse;
 
 typedef struct
 {
 	ZenithMessageTag tag;
-	uint64		system_id;
-	PageKey		page_key;
-	XLogRecPtr	lsn;			/* request page version @ this LSN */
-}			ZenithRequest;
+	bool		exists;
+} ZenithExistsResponse;
 
 typedef struct
 {
 	ZenithMessageTag tag;
-	bool		ok;
 	uint32		n_blocks;
-	char		page[1];
-}			ZenithResponse;
+} ZenithNblocksResponse;
 
-StringInfoData zm_pack(ZenithMessage * msg);
-ZenithMessage *zm_unpack(StringInfo s);
-char	   *zm_to_string(ZenithMessage * msg);
+typedef struct
+{
+	ZenithMessageTag tag;
+	char		page[FLEXIBLE_ARRAY_MEMBER];
+} ZenithGetPageResponse;
+
+typedef struct
+{
+	ZenithMessageTag tag;
+	char		message[FLEXIBLE_ARRAY_MEMBER]; /* null-terminated error message */
+} ZenithErrorResponse;
+
+extern StringInfoData zm_pack_request(ZenithRequest *msg);
+extern ZenithResponse *zm_unpack_response(StringInfo s);
+extern char *zm_to_string(ZenithMessage *msg);
 
 /*
  * API
@@ -84,13 +125,13 @@ char	   *zm_to_string(ZenithMessage * msg);
 
 typedef struct
 {
-	ZenithResponse *(*request) (ZenithRequest request);
-	void (*send) (ZenithRequest request);
+	ZenithResponse *(*request) (ZenithRequest *request);
+	void (*send) (ZenithRequest *request);
 	ZenithResponse *(*receive) (void);
 	void (*flush) (void);
-}			page_server_api;
+} page_server_api;
 
-extern page_server_api * page_server;
+extern page_server_api *page_server;
 
 extern char *page_server_connstring;
 extern char *callmemaybe_connstring;
@@ -132,9 +173,6 @@ extern BlockNumber zenith_nblocks(SMgrRelation reln, ForkNumber forknum);
 extern void zenith_truncate(SMgrRelation reln, ForkNumber forknum,
 							BlockNumber nblocks);
 extern void zenith_immedsync(SMgrRelation reln, ForkNumber forknum);
-
-extern bool zenith_nonrel_page_exists(RelFileNode rnode, BlockNumber blkno, int forknum);
-extern void zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forknum);
 
 /* zenith wal-redo storage manager functionality */
 

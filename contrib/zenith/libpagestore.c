@@ -45,32 +45,34 @@ PGconn	   *pageserver_conn;
 static void
 zenith_connect()
 {
-	char			 *query;
-	int				  ret;
-	char			 *auth_token;
-	char			 *err = NULL;
+	char	   *query;
+	int			ret;
+	char	   *auth_token;
+	char	   *err = NULL;
 	PQconninfoOption *conn_options;
 	PQconninfoOption *conn_option;
-	int 			 noptions = 0;
+	int			noptions = 0;
 
-    // this is heavily inspired by psql/command.c::do_connect
-	conn_options = PQconninfoParse(
-		page_server_connstring,
-	 	&err
-	);
+	/* this is heavily inspired by psql/command.c::do_connect */
+	conn_options = PQconninfoParse(page_server_connstring, &err);
 
-	if (conn_options == NULL) {
+	if (conn_options == NULL)
+	{
 		/* The error string is malloc'd, so we must free it explicitly */
 		char	   *errcopy = err ? pstrdup(err) : "out of memory";
+
 		PQfreemem(err);
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("invalid connection string syntax: %s", errcopy)));
+				 errmsg("invalid connection string syntax: %s", errcopy)));
 	}
 
-	// Trying to populate pageserver connection string with auth token from environment.
-	// We are looking for password in with placeholder value like $ENV_VAR_NAME, so if password field is present 
-	// and starts with $ we try to fetch environment variable value and fail loudly if it is not set
+	/*
+	 * Trying to populate pageserver connection string with auth token from
+	 * environment. We are looking for password in with placeholder value like
+	 * $ENV_VAR_NAME, so if password field is present and starts with $ we try
+	 * to fetch environment variable value and fail loudly if it is not set.
+	 */
 	for (conn_option = conn_options; conn_option->keyword != NULL; conn_option++)
 	{
 		noptions++;
@@ -78,56 +80,58 @@ zenith_connect()
 		{
 			if (conn_option->val != NULL && conn_option->val[0] != '\0')
 			{
-				// ensure that this is a template
-				if (strncmp(conn_option->val, "$", 1) != 0) {
-					ereport(
-						ERROR,
-						(
-							errcode(ERRCODE_CONNECTION_EXCEPTION),
-							errmsg("expected placeholder value in pageserver password starting from $ but found: %s", &conn_option->val[1])
-						)
-					);
-				}
-		
+				/* ensure that this is a template */
+				if (strncmp(conn_option->val, "$", 1) != 0)
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_EXCEPTION),
+							 errmsg("expected placeholder value in pageserver password starting from $ but found: %s", &conn_option->val[1])));
+
 				zenith_log(LOG, "found auth token placeholder in pageserver conn string %s", &conn_option->val[1]);
 				auth_token = getenv(&conn_option->val[1]);
-				if (!auth_token) {
-					ereport(
-						ERROR,
-						(
-							errcode(ERRCODE_CONNECTION_EXCEPTION),
-							errmsg("cannot get auth token, environment variable %s is not set", &conn_option->val[1])
-						)
-					);
-				} else {
+				if (!auth_token)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_CONNECTION_EXCEPTION),
+							 errmsg("cannot get auth token, environment variable %s is not set", &conn_option->val[1])));
+				}
+				else
+				{
 					zenith_log(LOG, "using auth token from environment passed via env");
 
-				// inspired by PQconninfoFree and conninfo_storeval
-				// so just free the old one and replace with freshly malloc'ed one
-				free(conn_option->val);
-				conn_option->val = strdup(auth_token);
+					/*
+					 * inspired by PQconninfoFree and conninfo_storeval so
+					 * just free the old one and replace with freshly
+					 * malloc'ed one
+					 */
+					free(conn_option->val);
+					conn_option->val = strdup(auth_token);
 				}
 			}
 		}
 	}
 
-	// copy values from PQconninfoOption to key/value arrays because PQconnectdbParams accepts options this way
-	const char **keywords = malloc((noptions + 1) * sizeof(*keywords));
-	const char **values = malloc((noptions + 1) * sizeof(*values));
-	int			 i = 0;
-	
-	for (i = 0; i < noptions; i++)
+	/*
+	 * copy values from PQconninfoOption to key/value arrays because
+	 * PQconnectdbParams accepts options this way
+	 */
 	{
-		keywords[i] = conn_options[i].keyword;
-		values[i] = conn_options[i].val;
-	}
-	// add array terminator
-	keywords[i] = NULL;
-	values[i] = NULL;
+		const char **keywords = malloc((noptions + 1) * sizeof(*keywords));
+		const char **values = malloc((noptions + 1) * sizeof(*values));
+		int			i = 0;
 
-	pageserver_conn = PQconnectdbParams(keywords, values, false);
-	free(keywords);
-	free(values);
+		for (i = 0; i < noptions; i++)
+		{
+			keywords[i] = conn_options[i].keyword;
+			values[i] = conn_options[i].val;
+		}
+		/* add array terminator */
+		keywords[i] = NULL;
+		values[i] = NULL;
+
+		pageserver_conn = PQconnectdbParams(keywords, values, false);
+		free(keywords);
+		free(values);
+	}
 
 	PQconninfoFree(conn_options);
 
@@ -143,7 +147,7 @@ zenith_connect()
 	}
 
 	/* Ask the Page Server to connect to us, and stream WAL from us. */
-	if (callmemaybe_connstring && callmemaybe_connstring[0] 
+	if (callmemaybe_connstring && callmemaybe_connstring[0]
 		&& zenith_tenant
 		&& zenith_timeline)
 	{
@@ -194,7 +198,7 @@ zenith_connect()
 }
 
 static void
-zenith_send(ZenithRequest request)
+zenith_send(ZenithRequest* request)
 {
 	StringInfoData req_buff;
 
@@ -209,7 +213,7 @@ zenith_send(ZenithRequest request)
 	if (!connected)
 		zenith_connect();
 
-	req_buff = zm_pack((ZenithMessage *) & request);
+	req_buff = zm_pack_request(request);
 
 	/* send request */
 	if (PQputCopyData(pageserver_conn, req_buff.data, req_buff.len) <= 0)
@@ -219,8 +223,9 @@ zenith_send(ZenithRequest request)
 	}
 	pfree(req_buff.data);
 
+	if (message_level_is_interesting(PqPageStoreTrace))
 	{
-		char	   *msg = zm_to_string((ZenithMessage *) & request);
+		char	   *msg = zm_to_string((ZenithMessage *) request);
 
 		zenith_log(PqPageStoreTrace, "Sent request: %s", msg);
 		pfree(msg);
@@ -237,11 +242,11 @@ zenith_flush(void)
 	}
 }
 
-static ZenithResponse *
+static ZenithResponse*
 zenith_receive(void)
 {
 	StringInfoData resp_buff;
-	ZenithMessage *resp;
+	ZenithResponse *resp;
 
 	/* read response */
 	resp_buff.len = PQgetCopyData(pageserver_conn, &resp_buff.data, 0);
@@ -252,25 +257,19 @@ zenith_receive(void)
 	else if (resp_buff.len == -2)
 		zenith_log(ERROR, "could not read COPY data: %s", PQerrorMessage(pageserver_conn));
 
-	resp = zm_unpack(&resp_buff);
+	resp = zm_unpack_response(&resp_buff);
 	PQfreemem(resp_buff.data);
 
-	Assert(messageTag(resp) == T_ZenithStatusResponse
-		   || messageTag(resp) == T_ZenithNblocksResponse
-		   || messageTag(resp) == T_ZenithReadResponse);
-
-	return (ZenithResponse *) resp;
+	return resp;
 }
 
-
-static ZenithResponse *
-zenith_call(ZenithRequest request)
+static ZenithResponse*
+zenith_call(ZenithRequest *request)
 {
 	zenith_send(request);
 	zenith_flush();
 	return zenith_receive();
 }
-
 
 page_server_api api = {
 	.request = zenith_call,

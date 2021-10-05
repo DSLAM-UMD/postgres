@@ -668,7 +668,7 @@ SendMessageToNode(int i, WalMessage *msg)
 		 * it.
 		 */
 		wk->state = SS_SEND_WAL;
-		/* Don't ned to update the event set; that's done by AdvancePollState */
+		/* Don't need to update the event set; that's done by AdvancePollState */
 
 		AdvancePollState(i, WL_NO_EVENTS);
 	}
@@ -1372,8 +1372,12 @@ AdvancePollState(int i, uint32 events)
 				{
 					/*
 					 * We are already streaming WAL: send all pending messages
-					 * to the attached walkeeper
+					 * to the attached walkeeper. 
+					 * 
+					 * We should start from truncateLsn to start streaming from
+					 * record boundary, which is required on safekeeper side.
 					 */
+					wk->startStreamingAt = wk->voteResponse.truncateLsn;
 					SendMessageToNode(i, msgQueueHead);
 				}
 				else

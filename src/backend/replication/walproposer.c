@@ -362,7 +362,7 @@ HandleWalKeeperResponse(void)
 
 
 	/* Cleanup message queue */
-	while (msgQueueHead != NULL && msgQueueHead->ackMask == ((1 << n_walkeepers) - 1))
+	while (msgQueueHead != NULL && msgQueueHead->ackMask == ((1 << n_walkeepers) - 1) && msgQueueHead->req.endLsn <= truncateLsn)
 	{
 		WalMessage *msg = msgQueueHead;
 

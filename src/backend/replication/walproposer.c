@@ -1140,7 +1140,7 @@ StartStreaming(WalKeeper *wk)
 
 	for (WalMessage *msg = msgQueueHead; msg != NULL; msg = msg->next)
 	{
-		if (false && msg->req.endLsn <= wk->startStreamingAt)
+		if (msg->req.endLsn <= wk->startStreamingAt)
 		{
 			/* message is already received by this walkeeper */
 			msg->ackMask |= 1 << wki;

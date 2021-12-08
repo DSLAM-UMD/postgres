@@ -23,6 +23,7 @@
 #include "access/commit_ts.h"
 #include "access/multixact.h"
 #include "access/parallel.h"
+#include "access/remotexact.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
 #include "access/twophase.h"
@@ -2143,6 +2144,7 @@ CommitTransaction(void)
 	TransactionState s = CurrentTransactionState;
 	TransactionId latestXid;
 	bool		is_parallel_worker;
+	const RemoteXactHook *remote_xact = GetRemoteXactHook();
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);
 
@@ -2159,6 +2161,11 @@ CommitTransaction(void)
 		elog(WARNING, "CommitTransaction while in %s state",
 			 TransStateAsString(s->state));
 	Assert(s->parent == NULL);
+
+	remote_xact->send_rwset_and_wait();
+
+	/* Clean up remote xact data */
+	AtEOXact_RemoteXact();
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
@@ -2690,6 +2697,9 @@ AbortTransaction(void)
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
+
+	/* Clean up remote xact data */
+	AtEOXact_RemoteXact();
 
 	/* Make sure we have a valid memory context and resource owner */
 	AtAbort_Memory();

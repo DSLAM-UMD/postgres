@@ -54,6 +54,7 @@
 #include "catalog/pg_publication_namespace.h"
 #include "catalog/pg_publication_rel.h"
 #include "catalog/pg_range.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "catalog/pg_replication_origin.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_seclabel.h"
@@ -740,6 +741,17 @@ static const struct cachedesc cacheinfo[] = {
 			0
 		},
 		128
+	},
+	{RemoteTablespaceRelationId,	/* REMOTETABLESPACESPCID */
+		RemoteTablespaceSpcIdIndexId,
+		1,
+		{
+			Anum_pg_remote_tablespace_spcid,
+			0,
+			0,
+			0
+		},
+		8
 	},
 	{ReplicationOriginRelationId,	/* REPLORIGIDENT */
 		ReplicationOriginIdentIndex,

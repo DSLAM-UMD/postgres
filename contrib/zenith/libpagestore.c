@@ -14,6 +14,7 @@
  */
 #include "postgres.h"
 
+#include "multiregion.h"
 #include "pagestore_client.h"
 #include "fmgr.h"
 #include "access/xlog.h"
@@ -194,8 +195,15 @@ zenith_call(ZenithRequest *request)
 		}
 
 		if (!connected)
-			zenith_connect();
-
+		{
+			if (zenith_multiregion_enabled())
+			{
+				zenith_log(LOG, "multi-region enabled");
+				zenith_multiregion_connect(&pageserver_conn, &connected);
+			}
+			else
+				zenith_connect();
+		}
 		req_buff = zm_pack_request(request);
 
 		/*
@@ -427,6 +435,8 @@ _PG_init(void)
 							PGC_SIGHUP,
 							GUC_UNIT_MB,
 							NULL, NULL,	NULL);
+
+	DefineMultiRegionCustomVariables();
 
 	relsize_hash_init();
 	EmitWarningsOnPlaceholders("zenith");

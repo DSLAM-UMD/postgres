@@ -57,6 +57,7 @@
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_publication.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_shseclabel.h"
 #include "catalog/pg_statistic_ext.h"
@@ -118,6 +119,7 @@ static const FormData_pg_attribute Desc_pg_auth_members[Natts_pg_auth_members] =
 static const FormData_pg_attribute Desc_pg_index[Natts_pg_index] = {Schema_pg_index};
 static const FormData_pg_attribute Desc_pg_shseclabel[Natts_pg_shseclabel] = {Schema_pg_shseclabel};
 static const FormData_pg_attribute Desc_pg_subscription[Natts_pg_subscription] = {Schema_pg_subscription};
+static const FormData_pg_attribute Desc_pg_remote_tablespace[Natts_pg_remote_tablespace] = {Schema_pg_remote_tablespace};
 
 /*
  *		Hash tables that index the relation cache
@@ -299,6 +301,7 @@ static void RelationParseRelOptions(Relation relation, HeapTuple tuple);
 static void RelationBuildTupleDesc(Relation relation);
 static Relation RelationBuildDesc(Oid targetRelId, bool insertIt);
 static void RelationInitPhysicalAddr(Relation relation);
+static void RelationLookUpRegion(Relation relation);
 static void load_critical_index(Oid indexoid, Oid heapoid);
 static TupleDesc GetPgClassDescriptor(void);
 static TupleDesc GetPgIndexDescriptor(void);
@@ -1247,6 +1250,11 @@ retry:
 	 */
 	RelationInitPhysicalAddr(relation);
 
+	/*
+	 * look up region information
+	 */
+	RelationLookUpRegion(relation);
+
 	/* make sure relation is marked as having no open file yet */
 	relation->rd_smgr = NULL;
 
@@ -1382,6 +1390,58 @@ RelationInitPhysicalAddr(Relation relation)
 		else
 			relation->rd_firstRelfilenodeSubid = InvalidSubTransactionId;
 	}
+}
+
+/*
+ * Look up the region that the relation belongs to.
+ *
+ * Physical information must be set for the relation (c.f. RelationInitPhysicalAddr()) before calling
+ * this function.
+ */
+static void
+RelationLookUpRegion(Relation relation)
+{
+	HeapTuple	remote_spc_tuple;
+	Relation	remote_spc_desc;
+	SysScanDesc remote_spc_scan;
+	ScanKeyData key;
+
+	/**
+	 * If IsMultiRegion is false, current_region is equal to GLOBAL_REGION, which is what we want
+	 */
+	relation->rd_region = current_region;
+
+	/**
+	 * Determine the region that the relation belongs to if multi-region mode is on
+	 */
+	if (!IsMultiRegion())
+		return;
+
+	/*
+	* form a scan key that looks up by the tablespace id
+	*/
+	ScanKeyInit(&key,
+				Anum_pg_remote_tablespace_spcid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(relation->rd_node.spcNode));
+
+	/*
+	* open pg_remote_tablespace and begin a scan
+	*/
+	remote_spc_desc = table_open(RemoteTablespaceRelationId, AccessShareLock);
+	remote_spc_scan = systable_beginscan(remote_spc_desc,
+										 RemoteTablespaceSpcIdIndexId,
+										 criticalSharedRelcachesBuilt, NULL,
+										 1, &key);
+
+	if (HeapTupleIsValid(remote_spc_tuple = systable_getnext(remote_spc_scan)))
+	{
+		Form_pg_remote_tablespace remote_spc_form = (Form_pg_remote_tablespace) GETSTRUCT(remote_spc_tuple);
+		relation->rd_region = remote_spc_form->regionid;
+	}
+
+	systable_endscan(remote_spc_scan);
+	table_close(remote_spc_desc, AccessShareLock);
 }
 
 /*
@@ -1896,6 +1956,11 @@ formrdesc(const char *relationName, Oid relationReltype,
 	relation->rd_backend = InvalidBackendId;
 	relation->rd_islocaltemp = false;
 
+	/**
+	 * all relations created by this function reside in the global region
+	 */
+	relation->rd_region = GLOBAL_REGION;
+
 	/*
 	 * initialize relation tuple form
 	 *
@@ -2268,6 +2333,8 @@ RelationReloadIndexInfo(Relation relation)
 	heap_freetuple(pg_class_tuple);
 	/* We must recalculate physical address in case it changed */
 	RelationInitPhysicalAddr(relation);
+	/* Recompute region */
+	RelationLookUpRegion(relation);
 
 	/*
 	 * For a non-system index, there are fields of the pg_index row that are
@@ -3795,7 +3862,8 @@ RelationSetNewRelfilenode(Relation relation, char persistence)
 		 * fails at this stage, the new cluster will need to be recreated
 		 * anyway.
 		 */
-		srel = smgropen(relation->rd_node, relation->rd_backend, persistence);
+		srel = smgropen(relation->rd_node, relation->rd_backend, persistence,
+						relation->rd_region);
 		smgrdounlinkall(&srel, 1, false);
 		smgrclose(srel);
 	}
@@ -4027,8 +4095,10 @@ RelationCacheInitializePhase2(void)
 				  Natts_pg_shseclabel, Desc_pg_shseclabel);
 		formrdesc("pg_subscription", SubscriptionRelation_Rowtype_Id, true,
 				  Natts_pg_subscription, Desc_pg_subscription);
+		formrdesc("pg_remote_tablespace", RemoteTablespaceRelation_Rowtype_Id, true,
+			  	  Natts_pg_remote_tablespace, Desc_pg_remote_tablespace);
 
-#define NUM_CRITICAL_SHARED_RELS	5	/* fix if you change list above */
+#define NUM_CRITICAL_SHARED_RELS	6	/* fix if you change list above */
 	}
 
 	MemoryContextSwitchTo(oldcxt);
@@ -4167,8 +4237,10 @@ RelationCacheInitializePhase3(void)
 							AuthMemRelationId);
 		load_critical_index(SharedSecLabelObjectIndexId,
 							SharedSecLabelRelationId);
+		load_critical_index(RemoteTablespaceSpcIdIndexId,
+							RemoteTablespaceRelationId);
 
-#define NUM_CRITICAL_SHARED_INDEXES 6	/* fix if you change list above */
+#define NUM_CRITICAL_SHARED_INDEXES 7	/* fix if you change list above */
 
 		criticalSharedRelcachesBuilt = true;
 	}

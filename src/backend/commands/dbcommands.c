@@ -41,6 +41,7 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_subscription.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "catalog/pg_tablespace.h"
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
@@ -275,7 +276,7 @@ ScanSourceDatabasePgClass(Oid tbid, Oid dbid, char *srcpath)
 	rnode.dbNode = dbid;
 	rnode.relNode = relfilenode;
 
-	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT);
+	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, GLOBAL_REGION);
 	nblocks = smgrnblocks(smgr, MAIN_FORKNUM);
 	smgrclose(smgr);
 

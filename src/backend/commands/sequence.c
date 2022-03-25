@@ -357,7 +357,7 @@ fill_seq_with_data(Relation rel, HeapTuple tuple)
 	{
 		SMgrRelation srel;
 
-		srel = smgropen(rel->rd_node, InvalidBackendId, rel->rd_rel->relpersistence);
+		srel = smgropen(rel->rd_node, InvalidBackendId, rel->rd_rel->relpersistence, rel->rd_rel->relregion);
 		smgrcreate(srel, INIT_FORKNUM, false);
 		log_smgrcreate(&rel->rd_node, INIT_FORKNUM);
 		fill_seq_fork_with_data(rel, tuple, INIT_FORKNUM);

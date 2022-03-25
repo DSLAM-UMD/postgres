@@ -1087,7 +1087,7 @@ DropRelationFiles(RelFileNode *delrels, int ndelrels, bool isRedo)
 	srels = palloc(sizeof(SMgrRelation) * ndelrels);
 	for (i = 0; i < ndelrels; i++)
 	{
-		SMgrRelation srel = smgropen(delrels[i], InvalidBackendId, 0);
+		SMgrRelation srel = smgropen(delrels[i], InvalidBackendId, 0, 0);
 
 		if (isRedo)
 		{
@@ -1370,7 +1370,7 @@ _mdnblocks(SMgrRelation reln, ForkNumber forknum, MdfdVec *seg)
 int
 mdsyncfiletag(const FileTag *ftag, char *path)
 {
-	SMgrRelation reln = smgropen(ftag->rnode, InvalidBackendId, 0);
+	SMgrRelation reln = smgropen(ftag->rnode, InvalidBackendId, 0, 0);
 	File		file;
 	bool		need_to_close;
 	int			result,

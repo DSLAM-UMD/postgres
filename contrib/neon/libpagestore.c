@@ -72,7 +72,13 @@ pageserver_connect()
 				 errdetail_internal("%s", msg)));
 	}
 
-	query = psprintf("pagestream %s %s", zenith_tenant, zenith_timeline);
+	if (neon_multiregion_enabled())
+	{
+		neon_log(LOG, "multi-region enabled, timelines: %s", neon_region_timelines);
+		query = psprintf("multipagestream %s %s", zenith_tenant, neon_region_timelines);
+	}
+	else
+		query = psprintf("pagestream %s %s", zenith_tenant, zenith_timeline);
 	ret = PQsendQuery(pageserver_conn, query);
 	if (ret != 1)
 	{
@@ -174,15 +180,8 @@ pageserver_call(ZenithRequest *request)
 		}
 
 		if (!connected)
-		{
-			if (zenith_multiregion_enabled())
-			{
-				neon_log(LOG, "multi-region enabled");
-				zenith_multiregion_connect(&pageserver_conn, &connected);
-			}
-			else
-				pageserver_connect();
-		}
+			pageserver_connect();
+
 		req_buff = zm_pack_request(request);
 
 		/*

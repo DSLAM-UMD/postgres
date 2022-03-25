@@ -31,10 +31,7 @@
 		(errmsg(ZENITH_TAG fmt, ##__VA_ARGS__), 	\
 		errhidestmt(true), errhidecontext(true)))
 
-#define GLOBAL_REGION 0
-
 /* GUCs */
-int zenith_current_region;
 static char *zenith_region_timelines;
 static char *zenith_region_safekeeper_addrs;
 
@@ -123,16 +120,6 @@ void DefineMultiRegionCustomVariables(void)
 								PGC_POSTMASTER,
 								0, /* no flags required */
 								check_zenith_region_safekeeper_addrs, NULL, NULL);
-
-	DefineCustomIntVariable("zenith.current_region",
-							"ID of the current region",
-							NULL,
-							&zenith_current_region,
-							GLOBAL_REGION,
-							0, INT_MAX,
-							PGC_POSTMASTER,
-							0,
-							NULL, NULL, NULL);
 }
 
 bool zenith_multiregion_enabled(void)
@@ -215,7 +202,7 @@ void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected)
 		char *host, *port;
 
 		/* Skip the global partition and current partition */
-		if (i == 0 || i == zenith_current_region)
+		if (i == 0 || i == current_region)
 			continue;
 		
 		if (!split_into_host_and_port(addr, &host, &port))
@@ -290,25 +277,4 @@ void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected)
 	zenith_log(LOG, "libpqpagestore: connected to '%s'", page_server_connstring);
 
 	*connected = true;
-}
-
-int
-lookup_region(Oid spcid, Oid relid)
-{
-	HeapTuple tup;
-	int regionid;
-
-	if (spcid == GLOBALTABLESPACE_OID ||
-		!zenith_multiregion_enabled() ||
-		IsCatalogRelationOid(relid))
-		return zenith_current_region;
-
-	tup = SearchSysCache1(REMOTETABLESPACESPCID, DatumGetObjectId(spcid));
-	if (!HeapTupleIsValid(tup))
-		return zenith_current_region;
-
-	regionid = ((Form_pg_remote_tablespace) GETSTRUCT(tup))->regionid;
-
-	ReleaseSysCache(tup);
-	return regionid;
 }

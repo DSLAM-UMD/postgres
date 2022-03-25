@@ -142,7 +142,7 @@ smgr(BackendId backend, RelFileNode rnode)
  * require it.
  */
 SMgrRelation
-smgropen(RelFileNode rnode, BackendId backend, char relpersistence)
+smgropen(RelFileNode rnode, BackendId backend, char relpersistence, int region)
 {
 	RelFileNodeBackend brnode;
 	SMgrRelation reln;
@@ -174,6 +174,7 @@ smgropen(RelFileNode rnode, BackendId backend, char relpersistence)
 		reln->smgr_owner = NULL;
 		reln->smgr_targblock = InvalidBlockNumber;
 		reln->smgr_relpersistence = relpersistence;
+		reln->smgr_region = region;
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
 			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
 
@@ -195,6 +196,8 @@ smgropen(RelFileNode rnode, BackendId backend, char relpersistence)
 			reln->smgr_relpersistence = relpersistence;
 		else
 			Assert(relpersistence == 0 || reln->smgr_relpersistence == relpersistence);
+
+		Assert(reln->smgr_region == region);
 	}
 
 	return reln;

@@ -130,11 +130,11 @@ zm_pack_request(ZenithRequest *msg)
 
 				pq_sendbyte(&s, msg_req->req.latest);
 				pq_sendint64(&s, msg_req->req.lsn);
+				pq_sendint32(&s, msg_req->req.region);
 				pq_sendint32(&s, msg_req->rnode.spcNode);
 				pq_sendint32(&s, msg_req->rnode.dbNode);
 				pq_sendint32(&s, msg_req->rnode.relNode);
 				pq_sendbyte(&s, msg_req->forknum);
-				pq_sendint32(&s, msg_req->region);
 
 				break;
 			}
@@ -144,11 +144,11 @@ zm_pack_request(ZenithRequest *msg)
 
 				pq_sendbyte(&s, msg_req->req.latest);
 				pq_sendint64(&s, msg_req->req.lsn);
+				pq_sendint32(&s, msg_req->req.region);
 				pq_sendint32(&s, msg_req->rnode.spcNode);
 				pq_sendint32(&s, msg_req->rnode.dbNode);
 				pq_sendint32(&s, msg_req->rnode.relNode);
 				pq_sendbyte(&s, msg_req->forknum);
-				pq_sendint32(&s, msg_req->region);
 
 				break;
 			}
@@ -158,12 +158,12 @@ zm_pack_request(ZenithRequest *msg)
 
 				pq_sendbyte(&s, msg_req->req.latest);
 				pq_sendint64(&s, msg_req->req.lsn);
+				pq_sendint32(&s, msg_req->req.region);
 				pq_sendint32(&s, msg_req->rnode.spcNode);
 				pq_sendint32(&s, msg_req->rnode.dbNode);
 				pq_sendint32(&s, msg_req->rnode.relNode);
 				pq_sendbyte(&s, msg_req->forknum);
 				pq_sendint32(&s, msg_req->blkno);
-				pq_sendint32(&s, msg_req->region);
 
 				break;
 			}
@@ -173,11 +173,11 @@ zm_pack_request(ZenithRequest *msg)
 
 				pq_sendbyte(&s, msg_req->req.latest);
 				pq_sendint64(&s, msg_req->req.lsn);
+				pq_sendint32(&s, msg_req->req.region);
 				pq_sendbyte(&s, msg_req->kind);
 				pq_sendint32(&s, msg_req->segno);
 				pq_sendint32(&s, msg_req->blkno);
 				pq_sendbyte(&s, msg_req->check_exists_only);
-				pq_sendint32(&s, msg_req->region);
 
 				break;
 			}
@@ -315,7 +315,7 @@ zm_to_string(ZenithMessage *msg)
 								 msg_req->rnode.dbNode,
 								 msg_req->rnode.relNode);
 				appendStringInfo(&s, ", \"forknum\": %d", msg_req->forknum);
-				appendStringInfo(&s, ", \"region\": %d", msg_req->region);
+				appendStringInfo(&s, ", \"region\": %d", msg_req->req.region);
 				appendStringInfo(&s, ", \"lsn\": \"%X/%X\"", LSN_FORMAT_ARGS(msg_req->req.lsn));
 				appendStringInfo(&s, ", \"latest\": %d", msg_req->req.latest);
 				appendStringInfoChar(&s, '}');
@@ -332,7 +332,7 @@ zm_to_string(ZenithMessage *msg)
 								 msg_req->rnode.dbNode,
 								 msg_req->rnode.relNode);
 				appendStringInfo(&s, ", \"forknum\": %d", msg_req->forknum);
-				appendStringInfo(&s, ", \"region\": %d", msg_req->region);
+				appendStringInfo(&s, ", \"region\": %d", msg_req->req.region);
 				appendStringInfo(&s, ", \"lsn\": \"%X/%X\"", LSN_FORMAT_ARGS(msg_req->req.lsn));
 				appendStringInfo(&s, ", \"latest\": %d", msg_req->req.latest);
 				appendStringInfoChar(&s, '}');
@@ -350,7 +350,7 @@ zm_to_string(ZenithMessage *msg)
 								 msg_req->rnode.relNode);
 				appendStringInfo(&s, ", \"forknum\": %d", msg_req->forknum);
 				appendStringInfo(&s, ", \"blkno\": %u", msg_req->blkno);
-				appendStringInfo(&s, ", \"region\": %d", msg_req->region);
+				appendStringInfo(&s, ", \"region\": %d", msg_req->req.region);
 				appendStringInfo(&s, ", \"lsn\": \"%X/%X\"", LSN_FORMAT_ARGS(msg_req->req.lsn));
 				appendStringInfo(&s, ", \"latest\": %d", msg_req->req.latest);
 				appendStringInfoChar(&s, '}');
@@ -366,7 +366,7 @@ zm_to_string(ZenithMessage *msg)
 				appendStringInfo(&s, ", \"segno\": %d", msg_req->segno);
 				appendStringInfo(&s, ", \"blkno\": %u", msg_req->blkno);
 				appendStringInfo(&s, ", \"check_exists_only\": %d", msg_req->check_exists_only);
-				appendStringInfo(&s, ", \"region\": %d", msg_req->region);
+				appendStringInfo(&s, ", \"region\": %d", msg_req->req.region);
 				appendStringInfo(&s, ", \"lsn\": \"%X/%X\"", LSN_FORMAT_ARGS(msg_req->req.lsn));
 				appendStringInfo(&s, ", \"latest\": %d", msg_req->req.latest);
 				appendStringInfoChar(&s, '}');
@@ -739,9 +739,9 @@ zenith_exists(SMgrRelation reln, ForkNumber forkNum)
 			.req.tag = T_ZenithExistsRequest,
 			.req.latest = latest,
 			.req.lsn = request_lsn,
+			.req.region = reln->smgr_region,
 			.rnode = reln->smgr_rnode.node,
-			.forknum = forkNum,
-			.region = reln->smgr_region
+			.forknum = forkNum
 		};
 
 		resp = page_server->request((ZenithRequest *) &request);
@@ -1042,10 +1042,10 @@ static void zenith_read_at_lsn_multi_region(RelFileNode rnode, ForkNumber forkNu
 			.req.tag = T_ZenithGetPageRequest,
 			.req.latest = request_latest,
 			.req.lsn = request_lsn,
+			.req.region = region,
 			.rnode = rnode,
 			.forknum = forkNum,
 			.blkno = blkno,
-			.region = region
 		};
 
 		resp = page_server->request((ZenithRequest *) &request);
@@ -1317,9 +1317,9 @@ zenith_nblocks(SMgrRelation reln, ForkNumber forknum)
 			.req.tag = T_ZenithNblocksRequest,
 			.req.latest = latest,
 			.req.lsn = request_lsn,
+			.req.region = reln->smgr_region,
 			.rnode = reln->smgr_rnode.node,
 			.forknum = forknum,
-			.region = reln->smgr_region
 		};
 
 		resp = page_server->request((ZenithRequest *) &request);
@@ -1750,6 +1750,8 @@ zenith_slru_read_page(const char* slru_kind_str, int segno, off_t offset, char *
 	bool			latest;
 	XLogRecPtr		request_lsn;
 	bool 			read_ok = false;
+	// FIXME: select the right region for specific slru kinds
+	int				region = current_region;
 
 	if (!slru_kind_from_string(slru_kind_str, &kind))
 	{
@@ -1757,8 +1759,7 @@ zenith_slru_read_page(const char* slru_kind_str, int segno, off_t offset, char *
 		return false;
 	}
 
-	// FIXME: select the right region for specific slru kinds
-	request_lsn = zenith_get_request_lsn(current_region, &latest);
+	request_lsn = zenith_get_request_lsn(region, &latest);
 
 	/**
 	 * During recovery, if there is no WAL redoing, the function GetXLogReplayRecPtr will return
@@ -1782,11 +1783,11 @@ zenith_slru_read_page(const char* slru_kind_str, int segno, off_t offset, char *
 			.req.tag = T_ZenithGetSlruPageRequest,
 			.req.latest = latest,
 			.req.lsn = request_lsn,
+			.req.region = region,
 			.kind = kind,
 			.segno = segno,
 			.blkno = offset,
-			.check_exists_only = false,
-			.region = current_region
+			.check_exists_only = false
 		};
 
 		resp = page_server->request((ZenithRequest *) &request);
@@ -1816,10 +1817,11 @@ zenith_slru_read_page(const char* slru_kind_str, int segno, off_t offset, char *
 		case T_ZenithErrorResponse:
 			ereport(WARNING,
 					(errcode(ERRCODE_IO_ERROR),
-					 errmsg("could not read block %lu in SLRU %s/%u from page server at lsn %X/%08X",
+					 errmsg("could not read block %lu in SLRU %s/%u in region %d, from page server at lsn %X/%08X",
 							offset,
 							slru_kind_to_string(kind),
 							segno,
+							region,
 							(uint32) (request_lsn >> 32), (uint32) request_lsn),
 					 errdetail("page server returned error: %s",
 							   ((ZenithErrorResponse *) resp)->message)));
@@ -1841,6 +1843,8 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 	ZenithSlruKind	kind;
 	bool			latest;
 	XLogRecPtr		request_lsn;
+	// FIXME: select the right region for specific slru kinds
+	int				region = current_region;
 
 	if (!slru_kind_from_string(slru_kind_str, &kind))
 	{
@@ -1849,17 +1853,17 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 	}
 
 	// FIXME: select the right region for specific slru kinds
-	request_lsn = zenith_get_request_lsn(current_region, &latest);
+	request_lsn = zenith_get_request_lsn(region, &latest);
 	{
 		ZenithGetSlruPageRequest request = {
 			.req.tag = T_ZenithGetSlruPageRequest,
 			.req.latest = latest,
 			.req.lsn = request_lsn,
+			.req.region = region,
 			.kind = kind,
 			.segno = segno,
 			.blkno = offset,
-			.check_exists_only = true,
-			.region = current_region
+			.check_exists_only = true
 		};
 
 		resp = page_server->request((ZenithRequest *) &request);
@@ -1873,10 +1877,11 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 		case T_ZenithErrorResponse:
 			ereport(ERROR,
 					(errcode(ERRCODE_IO_ERROR),
-					 errmsg("could not read block %lu in SLRU %s/%u from page server at lsn %X/%08X",
+					 errmsg("could not read block %lu in SLRU %s/%u in region %d from page server at lsn %X/%08X",
 							offset,
 							slru_kind_to_string(kind),
 							segno,
+							region,
 							(uint32) (request_lsn >> 32), (uint32) request_lsn),
 					 errdetail("page server returned error: %s",
 							   ((ZenithErrorResponse *) resp)->message)));

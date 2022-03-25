@@ -62,6 +62,7 @@ typedef struct
 	ZenithMessageTag tag;
 	bool		latest;			/* if true, request latest page version */
 	XLogRecPtr	lsn;			/* request page version @ this LSN */
+	int			region;			/* region to fetch page from */
 } ZenithRequest;
 
 typedef struct
@@ -69,7 +70,6 @@ typedef struct
 	ZenithRequest req;
 	RelFileNode rnode;
 	ForkNumber	forknum;
-	int	region;
 } ZenithExistsRequest;
 
 typedef struct
@@ -77,7 +77,6 @@ typedef struct
 	ZenithRequest req;
 	RelFileNode rnode;
 	ForkNumber	forknum;
-	int	region;
 } ZenithNblocksRequest;
 
 typedef struct
@@ -86,7 +85,6 @@ typedef struct
 	RelFileNode rnode;
 	ForkNumber	forknum;
 	BlockNumber blkno;
-	int	region;
 } ZenithGetPageRequest;
 
 typedef enum
@@ -103,7 +101,6 @@ typedef struct
 	int segno;
 	BlockNumber blkno;
 	bool check_exists_only;
-	int region;
 } ZenithGetSlruPageRequest;
 
 /* supertype of all the Zenith*Response structs below */

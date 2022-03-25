@@ -409,6 +409,24 @@ _PG_init(void)
 							GUC_UNIT_MB,
 							NULL, NULL, NULL);
 
+	DefineCustomBoolVariable("neon.slru_clog",
+							 "read clog from the page server",
+							 NULL,
+							 &neon_slru_clog,
+							 false,
+							 PGC_POSTMASTER,
+							 0, /* no flags required */
+							 NULL, NULL, NULL);
+
+	DefineCustomBoolVariable("neon.slru_multixact",
+							 "read multixact from the page server",
+							 NULL,
+							 &neon_slru_multixact,
+							 false,
+							 PGC_POSTMASTER,
+							 0, /* no flags required */
+							 NULL, NULL, NULL);
+
 	DefineMultiRegionCustomVariables();
 
 	relsize_hash_init();
@@ -446,4 +464,8 @@ _PG_init(void)
 		smgr_init_hook = smgr_init_zenith;
 		dbsize_hook = zenith_dbsize;
 	}
+
+	slru_kind_check_hook = neon_slru_kind_check;
+	slru_read_page_hook = neon_slru_read_page;
+	slru_page_exists_hook = neon_slru_page_exists;
 }

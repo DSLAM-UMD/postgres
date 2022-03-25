@@ -24,6 +24,7 @@
 #include "access/xlog_internal.h"
 #include "access/xlogprefetcher.h"
 #include "access/xlogutils.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/fd.h"
@@ -507,7 +508,7 @@ XLogReadBufferExtended(RelFileNode rnode, ForkNumber forknum,
 	}
 
 	/* Open the relation at smgr level */
-	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT);
+	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, current_region);
 
 	/*
 	 * Create the target file if it doesn't already exist.  This lets us cope

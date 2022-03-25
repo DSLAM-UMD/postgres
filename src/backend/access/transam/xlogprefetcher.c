@@ -33,6 +33,7 @@
 #include "access/xlogutils.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_control.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "catalog/storage_xlog.h"
 #include "commands/dbcommands_xlog.h"
 #include "utils/fmgrprotos.h"
@@ -723,7 +724,7 @@ XLogPrefetcherNextBlock(uintptr_t pgsr_private, XLogRecPtr *lsn)
 			 *
 			 * Only permanent relations are WAL-logged, so RELPERSISTENCE_PERMANENT.
 			 */
-			reln = smgropen(block->rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT);
+			reln = smgropen(block->rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, GLOBAL_REGION);
 
 			/*
 			 * If the relation file doesn't exist on disk, for example because

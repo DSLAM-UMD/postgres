@@ -48,6 +48,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
+#include "catalog/pg_remote_tablespace.h"
 #include "catalog/storage.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
@@ -3726,6 +3727,16 @@ static struct config_int ConfigureNamesInt[] =
 		&client_connection_check_interval,
 		0, 0, INT_MAX,
 		check_client_connection_check_interval, NULL, NULL
+	},
+
+	{
+		{"current_region", PGC_POSTMASTER, UNGROUPED,
+			gettext_noop("ID of the current region. Multi-region mode is activated if this is set"),
+			NULL
+		},
+		&current_region,
+		GLOBAL_REGION, 0, INT_MAX,
+		NULL, NULL, NULL
 	},
 
 	{

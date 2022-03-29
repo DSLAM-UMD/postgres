@@ -33,11 +33,11 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include "access/remotexact.h"
 #include "access/tableam.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
 #include "catalog/storage.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "executor/instrument.h"
 #include "lib/binaryheap.h"
 #include "miscadmin.h"
@@ -798,7 +798,7 @@ ReadBufferWithoutRelcache(RelFileNode rnode, ForkNumber forkNum,
 {
 	bool		hit;
 
-	SMgrRelation smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, current_region);
+	SMgrRelation smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, UNKNOWN_REGION);
 
 	Assert(InRecovery);
 
@@ -2891,7 +2891,7 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 
 	/* Find smgr relation for buffer */
 	if (reln == NULL)
-		reln = smgropen(buf->tag.rnode, InvalidBackendId, 0, current_region);
+		reln = smgropen(buf->tag.rnode, InvalidBackendId, 0, UNKNOWN_REGION);
 
 	TRACE_POSTGRESQL_BUFFER_FLUSH_START(buf->tag.forkNum,
 										buf->tag.blockNum,
@@ -4892,7 +4892,7 @@ IssuePendingWritebacks(WritebackContext *context)
 		i += ahead;
 
 		/* and finally tell the kernel to write the data to storage */
-		reln = smgropen(tag.rnode, InvalidBackendId, 0, current_region);
+		reln = smgropen(tag.rnode, InvalidBackendId, 0, UNKNOWN_REGION);
 		smgrwriteback(reln, tag.forkNum, tag.blockNum, nblocks);
 	}
 

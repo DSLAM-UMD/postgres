@@ -339,7 +339,7 @@ pg_relation_size(PG_FUNCTION_ARGS)
 	size = calculate_relation_size(&(rel->rd_node), rel->rd_backend,
 								   forkname_to_number(text_to_cstring(forkName)),
 								   rel->rd_rel->relpersistence,
-								   rel->rd_region);
+								   rel->rd_rel->relregion);
 
 	relation_close(rel, AccessShareLock);
 
@@ -366,7 +366,7 @@ calculate_toast_table_size(Oid toastrelid)
 		size += calculate_relation_size(&(toastRel->rd_node),
 										toastRel->rd_backend, forkNum,
 										toastRel->rd_rel->relpersistence,
-										toastRel->rd_region);
+										toastRel->rd_rel->relregion);
 
 	/* toast index size, including FSM and VM size */
 	indexlist = RelationGetIndexList(toastRel);
@@ -382,7 +382,7 @@ calculate_toast_table_size(Oid toastrelid)
 			size += calculate_relation_size(&(toastIdxRel->rd_node),
 											toastIdxRel->rd_backend, forkNum,
 											toastIdxRel->rd_rel->relpersistence,
-											toastIdxRel->rd_region);
+											toastIdxRel->rd_rel->relregion);
 
 		relation_close(toastIdxRel, AccessShareLock);
 	}
@@ -413,7 +413,7 @@ calculate_table_size(Relation rel)
 		size += calculate_relation_size(&(rel->rd_node), rel->rd_backend,
 										forkNum,
 										rel->rd_rel->relpersistence,
-										rel->rd_region);
+										rel->rd_rel->relregion);
 
 	/*
 	 * Size of toast relation
@@ -455,7 +455,7 @@ calculate_indexes_size(Relation rel)
 												idxRel->rd_backend,
 												forkNum,
 												idxRel->rd_rel->relpersistence,
-												idxRel->rd_region);
+												idxRel->rd_rel->relregion);
 
 			relation_close(idxRel, AccessShareLock);
 		}

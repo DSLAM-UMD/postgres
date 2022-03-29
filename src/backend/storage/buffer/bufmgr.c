@@ -33,11 +33,11 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include "access/remotexact.h"
 #include "access/tableam.h"
 #include "access/xloginsert.h"
 #include "access/xlogutils.h"
 #include "catalog/catalog.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "catalog/storage.h"
 #include "catalog/storage_xlog.h"
 #include "executor/instrument.h"
@@ -808,7 +808,7 @@ ReadBufferWithoutRelcache(RelFileNode rnode, ForkNumber forkNum,
 	bool		hit;
 
 	SMgrRelation smgr = smgropen(rnode, InvalidBackendId,
-								 RELPERSISTENCE_PERMANENT, current_region);
+								 RELPERSISTENCE_PERMANENT, UNKNOWN_REGION);
 
 	return ReadBuffer_common(smgr, permanent ? RELPERSISTENCE_PERMANENT :
 							 RELPERSISTENCE_UNLOGGED, forkNum, blockNum,
@@ -2887,7 +2887,7 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 
 	/* Find smgr relation for buffer */
 	if (reln == NULL)
-		reln = smgropen(buf->tag.rnode, InvalidBackendId, 0, current_region);
+		reln = smgropen(buf->tag.rnode, InvalidBackendId, 0, UNKNOWN_REGION);
 
 	TRACE_POSTGRESQL_BUFFER_FLUSH_START(buf->tag.forkNum,
 										buf->tag.blockNum,
@@ -3766,7 +3766,7 @@ RelationCopyStorageUsingBuffer(RelFileNode srcnode,
 	/* Get number of blocks in the source relation. */
 	nblocks = smgrnblocks(smgropen(srcnode, InvalidBackendId,
 						  permanent ? RELPERSISTENCE_PERMANENT
-						  :RELPERSISTENCE_UNLOGGED, GLOBAL_REGION),
+						  :RELPERSISTENCE_UNLOGGED, UNKNOWN_REGION),
 						  forkNum);
 
 	/* Nothing to copy; just return. */
@@ -3779,7 +3779,7 @@ RelationCopyStorageUsingBuffer(RelFileNode srcnode,
 	 */
 	memset(buf.data, 0, BLCKSZ);
 	smgrextend(smgropen(dstnode, InvalidBackendId, permanent ? RELPERSISTENCE_PERMANENT
-						  :RELPERSISTENCE_UNLOGGED), forkNum, nblocks - 1,
+						  :RELPERSISTENCE_UNLOGGED, UNKNOWN_REGION), forkNum, nblocks - 1,
 			   buf.data, true);
 
 	/* This is a bulk operation, so use buffer access strategies. */
@@ -3861,9 +3861,9 @@ CreateAndCopyRelationData(RelFileNode src_rnode, RelFileNode dst_rnode,
 	for (ForkNumber forkNum = MAIN_FORKNUM + 1;
 		 forkNum <= MAX_FORKNUM; forkNum++)
 	{
-		if (smgrexists(smgropen(src_rnode, InvalidBackendId, relpersistence, GLOBAL_REGION), forkNum))
+		if (smgrexists(smgropen(src_rnode, InvalidBackendId, relpersistence, UNKNOWN_REGION), forkNum))
 		{
-			smgrcreate(smgropen(dst_rnode, InvalidBackendId, relpersistence, GLOBAL_REGION), forkNum, false);
+			smgrcreate(smgropen(dst_rnode, InvalidBackendId, relpersistence, UNKNOWN_REGION), forkNum, false);
 
 			/*
 			 * WAL log creation if the relation is persistent, or this is the
@@ -5034,7 +5034,7 @@ IssuePendingWritebacks(WritebackContext *context)
 		i += ahead;
 
 		/* and finally tell the kernel to write the data to storage */
-		reln = smgropen(tag.rnode, InvalidBackendId, 0, current_region);
+		reln = smgropen(tag.rnode, InvalidBackendId, 0, UNKNOWN_REGION);
 		smgrwriteback(reln, tag.forkNum, tag.blockNum, nblocks);
 	}
 

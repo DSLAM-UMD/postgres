@@ -34,6 +34,7 @@
 
 #include "access/commit_ts.h"
 #include "access/gin.h"
+#include "access/remotexact.h"
 #include "access/rmgr.h"
 #include "access/tableam.h"
 #include "access/toast_compression.h"
@@ -48,7 +49,6 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_parameter_acl.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "catalog/storage.h"
 #include "commands/async.h"
 #include "commands/prepare.h"

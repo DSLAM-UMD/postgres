@@ -34,7 +34,6 @@
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_parameter_acl.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "catalog/pg_replication_origin.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
@@ -251,7 +250,6 @@ IsSharedRelation(Oid relationId)
 		relationId == DatabaseRelationId ||
 		relationId == DbRoleSettingRelationId ||
 		relationId == ParameterAclRelationId ||
-		relationId == RemoteTablespaceRelationId ||
 		relationId == ReplicationOriginRelationId ||
 		relationId == SharedDependRelationId ||
 		relationId == SharedDescriptionRelationId ||
@@ -269,7 +267,6 @@ IsSharedRelation(Oid relationId)
 		relationId == DbRoleSettingDatidRolidIndexId ||
 		relationId == ParameterAclOidIndexId ||
 		relationId == ParameterAclParnameIndexId ||
-		relationId == RemoteTablespaceSpcIdIndexId ||
 		relationId == ReplicationOriginIdentIndex ||
 		relationId == ReplicationOriginNameIndex ||
 		relationId == SharedDependDependerIndexId ||

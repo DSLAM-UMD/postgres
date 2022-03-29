@@ -27,6 +27,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/multixact.h"
+#include "access/remotexact.h"
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xloginsert.h"
@@ -41,7 +42,6 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_subscription.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "catalog/pg_tablespace.h"
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
@@ -276,7 +276,7 @@ ScanSourceDatabasePgClass(Oid tbid, Oid dbid, char *srcpath)
 	rnode.dbNode = dbid;
 	rnode.relNode = relfilenode;
 
-	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, GLOBAL_REGION);
+	smgr = smgropen(rnode, InvalidBackendId, RELPERSISTENCE_PERMANENT, UNKNOWN_REGION);
 	nblocks = smgrnblocks(smgr, MAIN_FORKNUM);
 	smgrclose(smgr);
 

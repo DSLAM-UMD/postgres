@@ -112,24 +112,28 @@ typedef struct
 typedef struct
 {
 	ZenithMessageTag tag;
+	XLogRecPtr	lsn;
 	bool		exists;
 } ZenithExistsResponse;
 
 typedef struct
 {
 	ZenithMessageTag tag;
+	XLogRecPtr	lsn;
 	uint32		n_blocks;
 } ZenithNblocksResponse;
 
 typedef struct
 {
 	ZenithMessageTag tag;
-	char		page[FLEXIBLE_ARRAY_MEMBER];
+	XLogRecPtr	lsn;
+char		page[FLEXIBLE_ARRAY_MEMBER];
 } ZenithGetPageResponse;
 
 typedef struct
 {
 	ZenithMessageTag tag;
+	XLogRecPtr	lsn;
 	bool		seg_exists;
 	bool		page_exists;
 	char		page[FLEXIBLE_ARRAY_MEMBER];

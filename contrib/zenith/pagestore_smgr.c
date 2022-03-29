@@ -1849,6 +1849,7 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 	XLogRecPtr		request_lsn;
 	// FIXME: select the right region for specific slru kinds
 	int				region = current_region;
+	bool			exists = false;
 
 	if (!slru_kind_from_string(slru_kind_str, &kind))
 	{
@@ -1876,7 +1877,8 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 	switch (resp->tag)
 	{
 		case T_ZenithGetSlruPageResponse:
-			return ((ZenithGetSlruPageResponse *) resp)->page_exists;
+			exists = ((ZenithGetSlruPageResponse *) resp)->page_exists;
+			break;
 
 		case T_ZenithErrorResponse:
 			ereport(ERROR,
@@ -1897,5 +1899,5 @@ zenith_slru_page_exists(const char* slru_kind_str, int segno, off_t offset)
 
 	pfree(resp);
 
-	return false;
+	return exists;
 } 

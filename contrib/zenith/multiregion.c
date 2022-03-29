@@ -14,9 +14,8 @@
 #include "pagestore_client.h"
 #include "replication/walproposer.h"
 
+#include "access/remotexact.h"
 #include "catalog/catalog.h"
-#include "catalog/pg_remote_tablespace.h"
-#include "catalog/pg_tablespace_d.h"
 #include "libpq-fe.h"
 #include "libpq/pqformat.h"
 #include "libpq/libpq.h"

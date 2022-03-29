@@ -16,8 +16,8 @@
 #include "postgres.h"
 
 #include "access/parallel.h"
+#include "access/remotexact.h"
 #include "catalog/catalog.h"
-#include "catalog/pg_remote_tablespace.h"
 #include "executor/instrument.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
@@ -216,7 +216,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		Page		localpage = (char *) LocalBufHdrGetBlock(bufHdr);
 
 		/* Find smgr relation for buffer */
-		oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_TEMP, current_region);
+		oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_TEMP, UNKNOWN_REGION);
 
 		PageSetChecksumInplace(localpage, bufHdr->tag.blockNum);
 

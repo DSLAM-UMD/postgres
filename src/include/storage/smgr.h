@@ -14,6 +14,7 @@
 #ifndef SMGR_H
 #define SMGR_H
 
+#include "access/xlogdefs.h"
 #include "lib/ilist.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
@@ -133,6 +134,7 @@ typedef struct f_smgr
 	void		(*smgr_end_unlogged_build) (SMgrRelation reln);
 
 	int  		(*smgr_read_slru_segment) (SMgrRelation reln, const char *path, int segno, void* buffer);
+	XLogRecPtr	(*smgr_getregionallsn) (int region);
 } f_smgr;
 
 typedef void (*smgr_init_hook_type) (void);
@@ -185,5 +187,6 @@ extern void	smgr_finish_unlogged_build_phase_1(SMgrRelation reln);
 extern void smgr_end_unlogged_build(SMgrRelation reln);
 
 extern int  smgr_read_slru_segment(SMgrRelation reln, const char *path, int segno, void* buffer);
+extern XLogRecPtr smgr_get_regional_lsn(SMgrRelation reln, int region);
 
 #endif							/* SMGR_H */

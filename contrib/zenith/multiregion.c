@@ -11,7 +11,6 @@
 #include "postgres.h"
 
 #include "multiregion.h"
-#include "pagestore_client.h"
 #include "replication/walproposer.h"
 
 #include "access/remotexact.h"
@@ -22,6 +21,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "utils/guc.h"
+#include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
 
@@ -33,6 +33,9 @@
 /* GUCs */
 static char *zenith_region_timelines;
 static char *zenith_region_safekeeper_addrs;
+
+static XLogRecPtr	*region_lsns = NULL;
+static int	num_regions = 1;
 
 static bool
 check_zenith_region_timelines(char **newval, void **extra, GucSource source)
@@ -70,9 +73,21 @@ check_zenith_region_timelines(char **newval, void **extra, GucSource source)
 		}
 	}
 
+	*extra = malloc(sizeof(int));
+	if (!*extra)
+		return false;
+
+	*((int *) *extra) = list_length(timelines);
+
 	pfree(rawstring);
 	list_free(timelines);
 	return true;
+}
+
+static void assign_zenith_region_timelines(const char *newval, void *extra)
+{
+	/* Add 1 for the global region */
+	num_regions = *((int *) extra) + 1;
 }
 
 static bool
@@ -100,7 +115,8 @@ check_zenith_region_safekeeper_addrs(char **newval, void **extra, GucSource sour
 	return true;
 }
 
-void DefineMultiRegionCustomVariables(void)
+void
+DefineMultiRegionCustomVariables(void)
 {
 	DefineCustomStringVariable("zenith.region_timelines",
 								"List of timelineids corresponding to the partitions. The first timeline is always for the global partition.",
@@ -108,8 +124,8 @@ void DefineMultiRegionCustomVariables(void)
 								&zenith_region_timelines,
 								"",
 								PGC_POSTMASTER,
-								0, /* no flags required */
-								check_zenith_region_timelines, NULL, NULL);
+								GUC_LIST_INPUT, /* no flags required */
+								check_zenith_region_timelines, assign_zenith_region_timelines, NULL);
 
 	DefineCustomStringVariable("zenith.region_safekeeper_addrs",
 								"List of addresses to the safekeepers in every regions. The first address is always for the global partition",
@@ -117,14 +133,8 @@ void DefineMultiRegionCustomVariables(void)
 								&zenith_region_safekeeper_addrs,
 								"",
 								PGC_POSTMASTER,
-								0, /* no flags required */
+								GUC_LIST_INPUT, /* no flags required */
 								check_zenith_region_safekeeper_addrs, NULL, NULL);
-}
-
-bool zenith_multiregion_enabled(void)
-{
-	return zenith_region_timelines && zenith_region_timelines[0] &&
-		zenith_region_safekeeper_addrs && zenith_region_safekeeper_addrs[0];
 }
 
 static bool
@@ -157,7 +167,8 @@ split_into_host_and_port(const char *addr, char** host, char** port)
  * Similar function to zenith_connect in libpagestore.c but used for
  * multiple timelines.
  */
-void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected)
+void
+zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected)
 {
 	List *timelines;
 	ListCell *lc_timeline;
@@ -276,4 +287,85 @@ void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected)
 	zenith_log(LOG, "libpqpagestore: connected to '%s'", page_server_connstring);
 
 	*connected = true;
+}
+
+static void
+init_region_lsns()
+{
+	region_lsns = (XLogRecPtr *)
+			MemoryContextAllocZero(TopTransactionContext,
+								   num_regions * sizeof(XLogRecPtr));
+}
+
+/*
+ * Set the LSN for a given region if it wasn't previously set. The set LSN is use
+ * for that region throughout the life of the transaction.
+ */
+void
+set_region_lsn(int region, ZenithResponse *msg)
+{
+	XLogRecPtr lsn;
+
+	if (!IsMultiRegion() || !RegionIsRemote(region))
+		return;
+
+	AssertArg(region < num_regions);
+
+	switch (messageTag(msg))
+	{
+		case T_ZenithExistsResponse:
+			lsn = ((ZenithExistsResponse *) msg)->lsn;
+			break;
+		case T_ZenithNblocksResponse:
+			lsn = ((ZenithNblocksResponse *) msg)->lsn;
+			break;
+		case T_ZenithGetPageResponse:
+			lsn = ((ZenithGetPageResponse *) msg)->lsn;
+			break;
+		case T_ZenithGetSlruPageResponse:
+			lsn = ((ZenithGetSlruPageResponse *) msg)->lsn;
+			break;
+		case T_ZenithErrorResponse:
+			break;
+		default:
+			zenith_log(ERROR, "unexpected zenith message tag 0x%02x", messageTag(msg));
+			break;
+	}
+
+	Assert(lsn != InvalidXLogRecPtr);
+
+	if (region_lsns == NULL)
+		init_region_lsns();
+
+	if (region_lsns[region] == InvalidXLogRecPtr)
+		region_lsns[region] = lsn;
+	else
+		Assert(region_lsns[region] == lsn);
+}
+
+/*
+ * Get the LSN of a region
+ */
+XLogRecPtr
+get_region_lsn(int region)
+{
+	if (!IsMultiRegion())
+		return InvalidXLogRecPtr;
+	
+	// LSN of the current region is already tracked by postgres
+	AssertArg(region != current_region);
+	AssertArg(region < num_regions);
+
+	if (region_lsns == NULL)
+		init_region_lsns();
+
+	return region_lsns[region];
+}
+
+void
+clear_region_lsns(void)
+{
+	/* The data is destroyed along with the transaction
+		context so only need to set this to NULL */
+	region_lsns = NULL;
 }

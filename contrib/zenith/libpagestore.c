@@ -186,7 +186,8 @@ zenith_call(ZenithRequest *request)
 	ZenithResponse *resp;
 
 	// This doesn't seem to cause any problem now. But if this assert
-	// is triggered, we can set the region to current_region.
+	// is triggered, it seems we can set the region to current_region
+	// as a last resort.
 	Assert(request->region != UNKNOWN_REGION);
 
 	PG_TRY();
@@ -201,7 +202,7 @@ zenith_call(ZenithRequest *request)
 
 		if (!connected)
 		{
-			if (zenith_multiregion_enabled())
+			if (IsMultiRegion())
 			{
 				zenith_log(LOG, "multi-region enabled");
 				zenith_multiregion_connect(&pageserver_conn, &connected);
@@ -245,6 +246,8 @@ zenith_call(ZenithRequest *request)
 
 		resp = zm_unpack_response(&resp_buff);
 		PQfreemem(resp_buff.data);
+
+		set_region_lsn(request->region, resp);
 
 		if (message_level_is_interesting(PqPageStoreTrace))
 		{

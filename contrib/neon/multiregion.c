@@ -25,6 +25,11 @@
 #include "utils/syscache.h"
 #include "utils/varlena.h"
 
+#define NEON_TAG "[NEON_SMGR] "
+#define neon_log(tag, fmt, ...) ereport(tag, \
+		(errmsg(NEON_TAG fmt, ## __VA_ARGS__), \
+		 errhidestmt(true), errhidecontext(true)))
+
 /* GUCs */
 char *neon_region_timelines;
 

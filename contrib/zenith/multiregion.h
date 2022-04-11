@@ -15,11 +15,11 @@
 #include "libpq-fe.h"
 #include "pagestore_client.h"
 
-void DefineMultiRegionCustomVariables(void);
+extern void DefineMultiRegionCustomVariables(void);
 
-void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected);
-void set_region_lsn(int region, ZenithResponse *msg);
-XLogRecPtr get_region_lsn(int region);
-void clear_region_lsns(void);
+extern void zenith_multiregion_connect(PGconn **pageserver_conn, bool *connected);
+extern void set_region_lsn(int region, ZenithResponse *msg);
+extern XLogRecPtr get_region_lsn(int region);
+extern void clear_region_lsns(void);
 
 #endif

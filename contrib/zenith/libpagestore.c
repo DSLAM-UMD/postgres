@@ -498,4 +498,6 @@ _PG_init(void)
 	slru_kind_check_hook = zenith_slru_kind_check;
 	slru_read_page_hook = zenith_slru_read_page;
 	slru_page_exists_hook = zenith_slru_page_exists;
+
+	get_region_lsn_hook = get_region_lsn;
 }

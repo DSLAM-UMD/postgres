@@ -14,7 +14,6 @@
 #ifndef SMGR_H
 #define SMGR_H
 
-#include "access/xlogdefs.h"
 #include "lib/ilist.h"
 #include "storage/block.h"
 #include "storage/relfilenode.h"
@@ -133,8 +132,6 @@ typedef struct f_smgr
 	void		(*smgr_start_unlogged_build) (SMgrRelation reln);
 	void		(*smgr_finish_unlogged_build_phase_1) (SMgrRelation reln);
 	void		(*smgr_end_unlogged_build) (SMgrRelation reln);
-
-	XLogRecPtr	(*smgr_getregionallsn) (int region);
 } f_smgr;
 
 typedef void (*smgr_init_hook_type) (void);
@@ -188,7 +185,5 @@ extern bool ProcessBarrierSmgrRelease(void);
 extern void smgr_start_unlogged_build(SMgrRelation reln);
 extern void	smgr_finish_unlogged_build_phase_1(SMgrRelation reln);
 extern void smgr_end_unlogged_build(SMgrRelation reln);
-
-extern XLogRecPtr smgr_get_regional_lsn(SMgrRelation reln, int region);
 
 #endif							/* SMGR_H */

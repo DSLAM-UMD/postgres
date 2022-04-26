@@ -24,6 +24,7 @@
 
 #include "access/clog.h"
 #include "access/commit_ts.h"
+#include "access/csn_log.h"
 #include "access/heaptoast.h"
 #include "access/multixact.h"
 #include "access/rewriteheap.h"
@@ -4758,6 +4759,7 @@ InitControlFile(uint64 sysidentifier)
 	ControlFile->wal_level = wal_level;
 	ControlFile->wal_log_hints = wal_log_hints;
 	ControlFile->track_commit_timestamp = track_commit_timestamp;
+	ControlFile->enable_csn_snapshot = enable_csn_snapshot;
 	ControlFile->data_checksum_version = bootstrap_data_checksum_version;
 }
 
@@ -5580,6 +5582,7 @@ BootStrapXLOG(void)
 
 	/* Bootstrap the commit log, too */
 	BootStrapCLOG();
+	BootStrapCSNLog();
 	BootStrapCommitTs();
 	BootStrapSUBTRANS();
 	BootStrapMultiXact();
@@ -7294,6 +7297,9 @@ StartupXLOG(void)
 	if (ControlFile->track_commit_timestamp)
 		StartupCommitTs();
 
+	if(ControlFile->enable_csn_snapshot)
+		StartupCSN();
+
 	/*
 	 * Recover knowledge about replay progress of known replication partners.
 	 */
@@ -8504,6 +8510,7 @@ StartupXLOG(void)
 	 * commit timestamp.
 	 */
 	CompleteCommitTsInitialization();
+	CompleteCSNInitialization();
 
 	/*
 	 * All done with end-of-recovery actions.
@@ -9982,7 +9989,7 @@ CreateCheckPoint(int flags)
 	 * in subtrans.c).  During recovery, though, we mustn't do this because
 	 * StartupSUBTRANS hasn't been called yet.
 	 */
-	if (!RecoveryInProgress())
+	if (!RecoveryInProgress()) 
 		TruncateSUBTRANS(GetOldestTransactionIdConsideredRunning());
 
 	/* Real work is done; log and update stats. */
@@ -10134,6 +10141,7 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	TRACE_POSTGRESQL_BUFFER_CHECKPOINT_START(flags);
 	CheckpointStats.ckpt_write_t = GetCurrentTimestamp();
 	CheckPointCLOG();
+	CheckPointCSNLog();
 	CheckPointCommitTs();
 	CheckPointSUBTRANS();
 	CheckPointMultiXact();
@@ -10435,8 +10443,10 @@ CreateRestartPoint(int flags)
 	 * in subtrans.c).  When hot standby is disabled, though, we mustn't do
 	 * this because StartupSUBTRANS hasn't been called yet.
 	 */
-	if (EnableHotStandby)
+	if (EnableHotStandby) {
 		TruncateSUBTRANS(GetOldestTransactionIdConsideredRunning());
+		TruncateCSNLog(GetOldestTransactionIdConsideredRunning());
+	}
 
 	/* Real work is done; log and update stats. */
 	LogCheckpointEnd(true);
@@ -10714,7 +10724,8 @@ XLogReportParameters(void)
 		max_wal_senders != ControlFile->max_wal_senders ||
 		max_prepared_xacts != ControlFile->max_prepared_xacts ||
 		max_locks_per_xact != ControlFile->max_locks_per_xact ||
-		track_commit_timestamp != ControlFile->track_commit_timestamp)
+		track_commit_timestamp != ControlFile->track_commit_timestamp ||
+		enable_csn_snapshot != ControlFile->enable_csn_snapshot)
 	{
 		/*
 		 * The change in number of backend slots doesn't need to be WAL-logged
@@ -10736,6 +10747,7 @@ XLogReportParameters(void)
 			xlrec.wal_level = wal_level;
 			xlrec.wal_log_hints = wal_log_hints;
 			xlrec.track_commit_timestamp = track_commit_timestamp;
+			xlrec.enable_csn_snapshot = enable_csn_snapshot;
 
 			XLogBeginInsert();
 			XLogRegisterData((char *) &xlrec, sizeof(xlrec));
@@ -10746,6 +10758,8 @@ XLogReportParameters(void)
 
 		LWLockAcquire(ControlFileLock, LW_EXCLUSIVE);
 
+		if (enable_csn_snapshot != ControlFile->enable_csn_snapshot)
+			prepare_csn_env(enable_csn_snapshot);
 		ControlFile->MaxConnections = MaxConnections;
 		ControlFile->max_worker_processes = max_worker_processes;
 		ControlFile->max_wal_senders = max_wal_senders;
@@ -10754,6 +10768,7 @@ XLogReportParameters(void)
 		ControlFile->wal_level = wal_level;
 		ControlFile->wal_log_hints = wal_log_hints;
 		ControlFile->track_commit_timestamp = track_commit_timestamp;
+		ControlFile->enable_csn_snapshot = enable_csn_snapshot;
 		UpdateControlFile();
 
 		LWLockRelease(ControlFileLock);
@@ -11205,6 +11220,9 @@ xlog_redo(XLogReaderState *record)
 		CommitTsParameterChange(xlrec.track_commit_timestamp,
 								ControlFile->track_commit_timestamp);
 		ControlFile->track_commit_timestamp = xlrec.track_commit_timestamp;
+		CSNlogParameterChange(xlrec.enable_csn_snapshot,
+								ControlFile->enable_csn_snapshot);
+		ControlFile->enable_csn_snapshot = xlrec.enable_csn_snapshot;
 
 		UpdateControlFile();
 		LWLockRelease(ControlFileLock);

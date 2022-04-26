@@ -33,6 +33,7 @@
 #include "storage/standby.h"
 #include "utils/builtins.h"
 #include "utils/relmapper.h"
+#include "access/csn_log.h"
 
 /* must be kept in sync with RmgrData definition in xlog_internal.h */
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask,decode) \

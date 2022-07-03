@@ -2572,8 +2572,8 @@ PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag)
 	}
 
 	/*
-	 * Collect the read set of the current transaction.
-	 * TODO: Make use of the promoting mechanism above to reduce the size of the read set.
+	 * Collect the read set of the current transaction. TODO: Make use of the
+	 * promoting mechanism above to reduce the size of the read set.
 	 */
 	switch (GET_PREDICATELOCKTARGETTAG_TYPE(*targettag))
 	{
@@ -2618,6 +2618,7 @@ PredicateLockRelation(Relation relation, Snapshot snapshot)
 										relation->rd_node.dbNode,
 										relation->rd_id);
 	PredicateLockAcquire(&tag);
+	CollectRegion(relation);
 }
 
 /*
@@ -2642,6 +2643,7 @@ PredicateLockPage(Relation relation, BlockNumber blkno, Snapshot snapshot)
 									relation->rd_id,
 									blkno);
 	PredicateLockAcquire(&tag);
+	CollectRegion(relation);
 }
 
 /*
@@ -2688,6 +2690,7 @@ PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
 									 ItemPointerGetBlockNumber(tid),
 									 ItemPointerGetOffsetNumber(tid));
 	PredicateLockAcquire(&tag);
+	CollectRegion(relation);
 }
 
 

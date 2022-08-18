@@ -1896,7 +1896,7 @@ neon_slru_read_page(SlruCtl ctl, int segno, off_t offset, char *buffer)
 	}
 
 	// FIXME: select the right region for specific slru kinds
-	request_lsn = zenith_get_request_lsn(region, &latest, InvalidOid, REL_METADATA_PSEUDO_BLOCKNO);
+	request_lsn = zenith_get_request_lsn(region, &latest);
 
 	/**
 	 * During recovery, if there is no WAL redoing, the function GetXLogReplayRecPtr will return
@@ -1991,7 +1991,7 @@ neon_slru_page_exists(SlruCtl ctl, int segno, off_t offset)
 	}
 
 	// FIXME: select the right region for specific slru kinds
-	request_lsn = zenith_get_request_lsn(region, &latest, InvalidOid, REL_METADATA_PSEUDO_BLOCKNO);
+	request_lsn = zenith_get_request_lsn(region, &latest);
 	{
 		ZenithGetSlruPageRequest request = {
 			.req.tag = T_ZenithGetSlruPageRequest,

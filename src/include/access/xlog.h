@@ -81,6 +81,7 @@ typedef enum WalLevel
 {
 	WAL_LEVEL_MINIMAL = 0,
 	WAL_LEVEL_REPLICA,
+	WAL_LEVEL_REMOTE_XACT,
 	WAL_LEVEL_LOGICAL
 } WalLevel;
 
@@ -132,6 +133,9 @@ extern PGDLLIMPORT int wal_level;
 
 /* Do we need to WAL-log information required only for logical replication? */
 #define XLogLogicalInfoActive() (wal_level >= WAL_LEVEL_LOGICAL)
+
+/* Do we need to WAL-log information required only for Hot Standby and remote xact? */
+#define XLogRemoteXactInfoActive() (wal_level >= WAL_LEVEL_REMOTE_XACT)
 
 #ifdef WAL_DEBUG
 extern PGDLLIMPORT bool XLOG_DEBUG;

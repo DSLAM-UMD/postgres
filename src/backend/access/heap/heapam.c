@@ -2388,7 +2388,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 
 	/* 
 	 * Put into the write set of remotexact. 
-	 * TODO: speculative inserts are ignored. Need a mechanism to keep
+	 * TODO (ctring): speculative inserts are ignored. Need a mechanism to keep
 	 * 		 track of whether they are finished or canceled.
 	 */
 	if (!(options & HEAP_INSERT_SPECULATIVE))
@@ -3117,6 +3117,23 @@ l1:
 	 */
 	old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied);
 
+	if (RelationIsUsedInRemoteXact(relation))
+	{
+		/*
+		 * Put the deleted tuple into the write set of remotexact.
+		 */
+		CollectDelete(relation, old_key_tuple);
+
+		/*
+		 * Free this early so that it is not WAL-logged.
+		 */
+		if (old_key_tuple != NULL && old_key_copied)
+		{
+			heap_freetuple(old_key_tuple);
+			old_key_tuple = NULL;
+		}
+	}
+
 	/*
 	 * If this is the first possibly-multixact-able operation in the current
 	 * transaction, set my per-backend OldestMemberMXactId setting. We can be
@@ -3272,11 +3289,6 @@ l1:
 	 */
 	if (have_tuple_lock)
 		UnlockTupleTuplock(relation, &(tp.t_self), LockTupleExclusive);
-
-	/*
-	 * Put the old tuple into the write set of remotexact.
-	 */
-	CollectDelete(relation, old_key_tuple);
 
 	pgstat_count_heap_delete(relation);
 
@@ -4092,6 +4104,23 @@ l2:
 										   id_has_external,
 										   &old_key_copied);
 
+	if (RelationIsUsedInRemoteXact(relation))
+	{
+		/*
+		 * Put the updated tuple into the write set of remotexact
+		 */
+		CollectUpdate(relation, old_key_tuple, heaptup);
+
+		/*
+		 * Free this early so that it is not WAL-logged.
+		 */
+		if (old_key_tuple != NULL && old_key_copied)
+		{
+			heap_freetuple(old_key_tuple);
+			old_key_tuple = NULL;
+		}
+	}
+
 	/* NO EREPORT(ERROR) from here till changes are logged */
 	START_CRIT_SECTION();
 
@@ -4219,11 +4248,6 @@ l2:
 	 */
 	if (have_tuple_lock)
 		UnlockTupleTuplock(relation, &(oldtup.t_self), *lockmode);
-
-	/*
-	 * Put into the write set of remotexact
-	 */
-	CollectUpdate(relation, old_key_tuple, heaptup);
 
 	pgstat_count_heap_update(relation, use_hot_update);
 
@@ -8588,7 +8612,7 @@ ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool key_required,
 
 	*copy = false;
 
-	if (!RelationIsLogicallyLogged(relation))
+	if (!RelationIsLogicallyLogged(relation) && !RelationIsUsedInRemoteXact(relation))
 		return NULL;
 
 	if (replident == REPLICA_IDENTITY_NOTHING)

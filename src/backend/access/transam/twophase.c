@@ -1574,7 +1574,7 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 * going to become visible. Details in comments to this functions.
 	 */
 	if (!isCommit)
-		CSNSnapshotAbort(proc, xid, hdr->nsubxacts, children);
+		CSNSnapshotAbort(MyProc, xid, hdr->nsubxacts, children);
 
 
 	ProcArrayRemove(proc, latestXid);
@@ -1587,12 +1587,11 @@ FinishPreparedTransaction(const char *gid, bool isCommit)
 	 */
 	if (isCommit)
 	{
-		CSNSnapshotCommit(proc, xid, hdr->nsubxacts, children);
+		CSNSnapshotCommit(MyProc, xid, hdr->nsubxacts, children);
 	}
 	else
 	{
-		Assert(XidCSNIsInProgress(
-				   pg_atomic_read_u64(&proc->assignedXidCsn)));
+		Assert(XidCSNIsInProgress(pg_atomic_read_u64(&MyProc->assignedXidCsn)));
 	}
 
 	/*

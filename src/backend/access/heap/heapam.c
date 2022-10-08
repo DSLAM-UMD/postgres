@@ -587,7 +587,8 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 			if (all_visible)
 				valid = true;
 			else
-				valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
+				valid = HeapTupleSatisfiesVisibility(RelationGetRegion(scan->rs_base.rs_rd),
+													 &loctup, snapshot, buffer);
 
 			HeapCheckForSerializableConflictOut(valid, scan->rs_base.rs_rd,
 												&loctup, buffer, snapshot);
@@ -829,7 +830,8 @@ heapgettup(HeapScanDesc scan,
 				/*
 				 * if current tuple qualifies, return it.
 				 */
-				valid = HeapTupleSatisfiesVisibility(tuple,
+				valid = HeapTupleSatisfiesVisibility(RelationGetRegion(scan->rs_base.rs_rd),
+													 tuple,
 													 snapshot,
 													 scan->rs_cbuf);
 
@@ -1803,7 +1805,7 @@ heap_fetch_extended(Relation relation,
 	/*
 	 * check tuple visibility, then release lock
 	 */
-	valid = HeapTupleSatisfiesVisibility(tuple, snapshot, buffer);
+	valid = HeapTupleSatisfiesVisibility(RelationGetRegion(relation), tuple, snapshot, buffer);
 
 	if (valid)
 		PredicateLockTID(relation, &(tuple->t_self), snapshot,
@@ -1945,7 +1947,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		if (!skip)
 		{
 			/* If it's visible per the snapshot, we must return it */
-			valid = HeapTupleSatisfiesVisibility(heapTuple, snapshot, buffer);
+			valid = HeapTupleSatisfiesVisibility(RelationGetRegion(relation), heapTuple, snapshot, buffer);
 			HeapCheckForSerializableConflictOut(valid, relation, heapTuple,
 												buffer, snapshot);
 
@@ -2091,7 +2093,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 		 * Check tuple visibility; if visible, set it as the new result
 		 * candidate.
 		 */
-		valid = HeapTupleSatisfiesVisibility(&tp, snapshot, buffer);
+		valid = HeapTupleSatisfiesVisibility(RelationGetRegion(relation), &tp, snapshot, buffer);
 		HeapCheckForSerializableConflictOut(valid, relation, &tp, buffer, snapshot);
 		if (valid)
 			*tid = ctid;
@@ -2944,7 +2946,7 @@ l1:
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 	}
 
-	result = HeapTupleSatisfiesUpdate(&tp, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), &tp, cid, buffer);
 
 	if (result == TM_Invisible)
 	{
@@ -3070,7 +3072,7 @@ l1:
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
-		if (!HeapTupleSatisfiesVisibility(&tp, crosscheck, buffer))
+		if (!HeapTupleSatisfiesVisibility(RelationGetRegion(relation), &tp, crosscheck, buffer))
 			result = TM_Updated;
 	}
 
@@ -3541,7 +3543,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 l2:
 	checked_lockers = false;
 	locker_remains = false;
-	result = HeapTupleSatisfiesUpdate(&oldtup, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), &oldtup, cid, buffer);
 
 	/* see below about the "no wait" case */
 	Assert(result != TM_BeingModified || wait);
@@ -3733,7 +3735,7 @@ l2:
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
-		if (!HeapTupleSatisfiesVisibility(&oldtup, crosscheck, buffer))
+		if (!HeapTupleSatisfiesVisibility(RelationGetRegion(relation), &oldtup, crosscheck, buffer))
 		{
 			result = TM_Updated;
 			Assert(!ItemPointerEquals(&oldtup.t_self, &oldtup.t_data->t_ctid));
@@ -4560,7 +4562,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	tuple->t_tableOid = RelationGetRelid(relation);
 
 l3:
-	result = HeapTupleSatisfiesUpdate(tuple, cid, *buffer);
+	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), tuple, cid, *buffer);
 
 	if (result == TM_Invisible)
 	{

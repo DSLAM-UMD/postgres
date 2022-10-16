@@ -1442,7 +1442,7 @@ asyncQueueAddEntries(ListCell *nextNotify)
 		slotno = SimpleLruZeroPage(NotifyCtl, pageno);
 	else
 		slotno = SimpleLruReadPage(NotifyCtl, pageno, true,
-								   InvalidTransactionId);
+								   InvalidTransactionId, InvalidXLogRecPtr);
 
 	/* Note we mark the page dirty before writing in it */
 	NotifyCtl->shared->page_dirty[slotno] = true;
@@ -1993,8 +1993,9 @@ asyncQueueReadAllNotifications(void)
 			 * part of the page we will actually inspect.
 			 */
 			slotno = SimpleLruReadPage_ReadOnly(NotifyCtl, curpage,
-												InvalidTransactionId);
-			if (curpage == QUEUE_POS_PAGE(head))
+												InvalidTransactionId,
+												InvalidXLogRecPtr);
+            if (curpage == QUEUE_POS_PAGE(head))
 			{
 				/* we only want to read as far as head */
 				copysize = QUEUE_POS_OFFSET(head) - curoffset;

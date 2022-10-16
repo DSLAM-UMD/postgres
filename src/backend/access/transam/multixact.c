@@ -882,7 +882,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 	 * enough that a MultiXactId is really involved.  Perhaps someday we'll
 	 * take the trouble to generalize the slru.c error reporting code.
 	 */
-	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi);
+	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi,
+								InvalidXLogRecPtr);
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 
@@ -915,7 +916,8 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 
 		if (pageno != prev_pageno)
 		{
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+										multi, InvalidXLogRecPtr);
 			prev_pageno = pageno;
 		}
 
@@ -1346,7 +1348,8 @@ retry:
 	pageno = MultiXactIdToOffsetPage(multi);
 	entryno = MultiXactIdToOffsetEntry(multi);
 
-	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi);
+	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi,
+								InvalidXLogRecPtr);
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
@@ -1378,9 +1381,10 @@ retry:
 		entryno = MultiXactIdToOffsetEntry(tmpMXact);
 
 		if (pageno != prev_pageno)
-			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, tmpMXact);
+			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true,
+										tmpMXact, InvalidXLogRecPtr);
 
-		offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
+        offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		offptr += entryno;
 		nextMXOffset = *offptr;
 
@@ -1418,7 +1422,8 @@ retry:
 
 		if (pageno != prev_pageno)
 		{
-			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, multi);
+			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+										multi, InvalidXLogRecPtr);
 			prev_pageno = pageno;
 		}
 
@@ -2069,7 +2074,8 @@ TrimMultiXact(void)
 		int			slotno;
 		MultiXactOffset *offptr;
 
-		slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, nextMXact);
+		slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true,
+									nextMXact, InvalidXLogRecPtr);
 		offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		offptr += entryno;
 
@@ -2101,8 +2107,9 @@ TrimMultiXact(void)
 		int			memberoff;
 
 		memberoff = MXOffsetToMemberOffset(offset);
-		slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true, offset);
-		xidptr = (TransactionId *)
+		slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
+									offset, InvalidXLogRecPtr);
+        xidptr = (TransactionId *)
 			(MultiXactMemberCtl->shared->page_buffer[slotno] + memberoff);
 
 		MemSet(xidptr, 0, BLCKSZ - memberoff);
@@ -2755,8 +2762,9 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 		return false;
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
-	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, multi);
-	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
+	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, multi,
+										InvalidXLogRecPtr);
+        offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
 	LWLockRelease(MultiXactOffsetSLRULock);

@@ -961,9 +961,10 @@ SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo)
 		slotno = SimpleLruZeroPage(SerialSlruCtl, targetPage);
 	}
 	else
-		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, xid);
+		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, xid,
+									InvalidXLogRecPtr);
 
-	SerialValue(slotno, xid) = minConflictCommitSeqNo;
+    SerialValue(slotno, xid) = minConflictCommitSeqNo;
 	SerialSlruCtl->shared->page_dirty[slotno] = true;
 
 	LWLockRelease(SerialSLRULock);
@@ -1003,7 +1004,8 @@ SerialGetMinConflictCommitSeqNo(TransactionId xid)
 	 * but will return with that lock held, which must then be released.
 	 */
 	slotno = SimpleLruReadPage_ReadOnly(SerialSlruCtl,
-										SerialPage(xid), xid);
+										SerialPage(xid), xid, 
+										InvalidXLogRecPtr);
 	val = SerialValue(slotno, xid);
 	LWLockRelease(SerialSLRULock);
 	return val;

@@ -138,7 +138,7 @@ static void SimpleLruZeroLSNs(SlruCtl ctl, int slotno);
 static void SimpleLruWaitIO(SlruCtl ctl, int slotno);
 static bool SimpleLruDoesPhysicalPageExistDefault(SlruCtl ctl, int pageno);
 static void SlruInternalWritePage(SlruCtl ctl, int slotno, SlruWriteAll fdata);
-static bool SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno);
+static bool SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno, XLogRecPtr min_lsn);
 static bool SlruPhysicalReadPageDefault(SlruCtl ctl, int pageno, int slotno);
 static bool SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno,
 								  SlruWriteAll fdata);
@@ -170,7 +170,8 @@ SimpleLruShmemSize(int nslots, int nlsns)
 	sz += MAXALIGN(nslots * sizeof(bool));	/* page_dirty[] */
 	sz += MAXALIGN(nslots * sizeof(int));	/* page_number[] */
 	sz += MAXALIGN(nslots * sizeof(int));	/* page_lru_count[] */
-	sz += MAXALIGN(nslots * sizeof(LWLockPadded));	/* buffer_locks[] */
+	sz += MAXALIGN(nslots * sizeof(XLogRecPtr));	/* page_lsn[] */
+	sz += MAXALIGN(nslots * sizeof(LWLockPadded)); /* buffer_locks[] */
 
 	if (nlsns > 0)
 		sz += MAXALIGN(nslots * nlsns * sizeof(XLogRecPtr));	/* group_lsn[] */
@@ -236,6 +237,8 @@ SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
 		offset += MAXALIGN(nslots * sizeof(int));
 		shared->page_lru_count = (int *) (ptr + offset);
 		offset += MAXALIGN(nslots * sizeof(int));
+		shared->page_lsn = (XLogRecPtr *) (ptr + offset);
+		offset += MAXALIGN(nslots * sizeof(XLogRecPtr));
 
 		/* Initialize LWLocks */
 		shared->buffer_locks = (LWLockPadded *) (ptr + offset);
@@ -257,6 +260,7 @@ SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
 			shared->page_status[slotno] = SLRU_PAGE_EMPTY;
 			shared->page_dirty[slotno] = false;
 			shared->page_lru_count[slotno] = 0;
+			shared->page_lsn[slotno] = InvalidXLogRecPtr;
 			ptr += BLCKSZ;
 		}
 
@@ -301,6 +305,7 @@ SimpleLruZeroPage(SlruCtl ctl, int pageno)
 	shared->page_status[slotno] = SLRU_PAGE_VALID;
 	shared->page_dirty[slotno] = true;
 	SlruRecentlyUsed(shared, slotno);
+	shared->page_lsn[slotno] = InvalidXLogRecPtr;
 
 	/* Set the buffer to zeroes */
 	MemSet(shared->page_buffer[slotno], 0, BLCKSZ);
@@ -400,7 +405,7 @@ SimpleLruWaitIO(SlruCtl ctl, int slotno)
  */
 int
 SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
-				  TransactionId xid)
+				  XLogRecPtr min_lsn, TransactionId xid)
 {
 	SlruShared	shared = ctl->shared;
 
@@ -415,7 +420,9 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 
 		/* Did we find the page in memory? */
 		if (shared->page_number[slotno] == pageno &&
-			shared->page_status[slotno] != SLRU_PAGE_EMPTY)
+			shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
+			(min_lsn == InvalidXLogRecPtr ||
+			min_lsn <= shared->page_lsn[slotno]))
 		{
 			/*
 			 * If page is still being read in, we must wait for I/O.  Likewise
@@ -432,6 +439,12 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 			/* Otherwise, it's ready to use */
 			SlruRecentlyUsed(shared, slotno);
 
+			if (min_lsn != InvalidXLogRecPtr ||
+			min_lsn <= shared->page_lsn[slotno]) {
+				// We have not found the page at the required lsn.
+				continue;
+			}
+
 			/* update the stats counter of pages found in the SLRU */
 			pgstat_count_slru_page_hit(shared->slru_stats_idx);
 
@@ -447,6 +460,7 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 		shared->page_number[slotno] = pageno;
 		shared->page_status[slotno] = SLRU_PAGE_READ_IN_PROGRESS;
 		shared->page_dirty[slotno] = false;
+		shared->page_lsn[slotno] = min_lsn;
 
 		/* Acquire per-buffer lock (cannot deadlock, see notes at top) */
 		LWLockAcquire(&shared->buffer_locks[slotno].lock, LW_EXCLUSIVE);
@@ -455,7 +469,7 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 		LWLockRelease(shared->ControlLock);
 
 		/* Do the read */
-		ok = SlruPhysicalReadPage(ctl, pageno, slotno);
+		ok = SlruPhysicalReadPage(ctl, pageno, slotno, min_lsn);
 
 		/* Set the LSNs for this newly read-in page to zero */
 		SimpleLruZeroLSNs(ctl, slotno);
@@ -499,7 +513,8 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
  * It is unspecified whether the lock will be shared or exclusive.
  */
 int
-SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, TransactionId xid)
+SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, XLogRecPtr min_lsn,
+						   TransactionId xid)
 {
 	SlruShared	shared = ctl->shared;
 	int			slotno;
@@ -507,12 +522,17 @@ SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, TransactionId xid)
 	/* Try to find the page while holding only shared lock */
 	LWLockAcquire(shared->ControlLock, LW_SHARED);
 
-	/* See if page is already in a buffer */
+	/* See if page is already in a buffer. If the request contains a valid
+	 * min_lsn, then ensure that the page we pick has lsn set to at least
+	 * min_lsn.
+	 */
 	for (slotno = 0; slotno < shared->num_slots; slotno++)
 	{
 		if (shared->page_number[slotno] == pageno &&
 			shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
-			shared->page_status[slotno] != SLRU_PAGE_READ_IN_PROGRESS)
+			shared->page_status[slotno] != SLRU_PAGE_READ_IN_PROGRESS &&
+			(min_lsn == InvalidXLogRecPtr ||
+			min_lsn <= shared->page_lsn[slotno]))
 		{
 			/* See comments for SlruRecentlyUsed macro */
 			SlruRecentlyUsed(shared, slotno);
@@ -528,7 +548,7 @@ SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, TransactionId xid)
 	LWLockRelease(shared->ControlLock);
 	LWLockAcquire(shared->ControlLock, LW_EXCLUSIVE);
 
-	return SimpleLruReadPage(ctl, pageno, true, xid);
+	return SimpleLruReadPage(ctl, pageno, true, xid, min_lsn);
 }
 
 /*
@@ -558,11 +578,13 @@ SlruInternalWritePage(SlruCtl ctl, int slotno, SlruWriteAll fdata)
 
 	/*
 	 * Do nothing if page is not dirty, or if buffer no longer contains the
-	 * same page we were called for.
+	 * same page we were called for. Also, if the buffer has a page_lsn set,
+	 * then it "likely" belongs to another region, we should do nothing. 
 	 */
 	if (!shared->page_dirty[slotno] ||
 		shared->page_status[slotno] != SLRU_PAGE_VALID ||
-		shared->page_number[slotno] != pageno)
+		shared->page_number[slotno] != pageno ||
+		shared->page_lsn[slotno] != InvalidXLogRecPtr)
 		return;
 
 	/*
@@ -710,7 +732,7 @@ SimpleLruDoesPhysicalPageExistDefault(SlruCtl ctl, int pageno)
  * to the default read function.
  */
 static bool
-SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
+SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno, XLogRecPtr min_lsn)
 {
 	if (slru_kind_check_hook && (*slru_kind_check_hook)(ctl))
 	{
@@ -722,8 +744,8 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		Assert(slru_read_page_hook);
 
 		pgstat_report_wait_start(WAIT_EVENT_SLRU_READ);
-		if (!(*slru_read_page_hook)(ctl, segno, blkno, shared->page_buffer[slotno]))
-		{
+        if (!(*slru_read_page_hook)(ctl, segno, blkno, min_lsn,
+                					shared->page_buffer[slotno])) {
 			pgstat_report_wait_end();
 			slru_errcause = SLRU_READ_FAILED;
 			slru_errno = EIO;

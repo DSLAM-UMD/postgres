@@ -168,9 +168,10 @@ CSNLogSetPageStatus(TransactionId xid, int nsubxids,
 
 	LWLockAcquire(CSNLogControlLock, LW_EXCLUSIVE);
 
-	slotno = SimpleLruReadPage(CsnlogCtl, pageno, true, xid);
+	slotno =
+		SimpleLruReadPage(CsnlogCtl, pageno, true, xid, InvalidXLogRecPtr);
 
-	/* Subtransactions first, if needed ... */
+    /* Subtransactions first, if needed ... */
 	for (i = 0; i < nsubxids; i++)
 	{
         Assert(CsnlogCtl->shared->page_number[slotno] ==
@@ -217,11 +218,12 @@ CSNLogGetCSNByXid(TransactionId xid)
 	int			pageno = TransactionIdToPage(xid, current_region);
 	int			entryno = TransactionIdToPgIndex(xid);
 	int			slotno;
+	XLogRecPtr  min_lsn = InvalidXLogRecPtr;
 	XidCSN *ptr;
 	XidCSN	xid_csn;
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
-	slotno = SimpleLruReadPage_ReadOnly(CsnlogCtl, pageno, xid);
+	slotno = SimpleLruReadPage_ReadOnly(CsnlogCtl, pageno, xid, min_lsn);
 
 	ptr = (XidCSN *) (CsnlogCtl->shared->page_buffer[slotno] + entryno * sizeof(XidCSN));
 	xid_csn = *ptr;

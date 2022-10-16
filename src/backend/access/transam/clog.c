@@ -358,9 +358,10 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
 	 * write-busy, since we don't care if the update reaches disk sooner than
 	 * we think.
 	 */
-	slotno = SimpleLruReadPage(XactCtl, pageno, XLogRecPtrIsInvalid(lsn), xid);
+	slotno = SimpleLruReadPage(XactCtl, pageno, XLogRecPtrIsInvalid(lsn),
+								xid, InvalidXLogRecPtr);
 
-	/*
+        /*
 	 * Set the main transaction id, if any.
 	 *
 	 * If we update more than one xid on this page while it is being written
@@ -649,7 +650,8 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
 
-	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno, xid);
+	slotno =
+		SimpleLruReadPage_ReadOnly(XactCtl, pageno, xid, InvalidXLogRecPtr);
 	byteptr = XactCtl->shared->page_buffer[slotno] + byteno;
 
 	status = (*byteptr >> bshift) & CLOG_XACT_BITMASK;
@@ -798,7 +800,8 @@ TrimCLOG(void)
 		int			slotno;
 		char	   *byteptr;
 
-		slotno = SimpleLruReadPage(XactCtl, pageno, false, xid);
+		slotno = SimpleLruReadPage(XactCtl, pageno, false, xid,
+									InvalidXLogRecPtr);
 		byteptr = XactCtl->shared->page_buffer[slotno] + byteno;
 
 		/* Zero so-far-unused positions in the current byte */

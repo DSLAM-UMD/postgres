@@ -144,7 +144,7 @@ static bool SlruPhysicalReadPageDefault(SlruCtl ctl, int pageno, int slotno);
 static bool SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno,
 								  SlruWriteAll fdata);
 static void SlruReportIOError(SlruCtl ctl, int pageno, TransactionId xid);
-static int	SlruSelectLRUPage(SlruCtl ctl, int pageno);
+static int	SlruSelectLRUPage(SlruCtl ctl, int pageno, XLogRecPtr min_lsn);
 
 static bool SlruScanDirCbDeleteCutoff(SlruCtl ctl, char *filename,
 									  int segpage, void *data);
@@ -295,7 +295,7 @@ SimpleLruZeroPage(SlruCtl ctl, int pageno)
 	int			slotno;
 
 	/* Find a suitable buffer slot for the page */
-	slotno = SlruSelectLRUPage(ctl, pageno);
+	slotno = SlruSelectLRUPage(ctl, pageno, InvalidXLogRecPtr);
 	Assert(shared->page_status[slotno] == SLRU_PAGE_EMPTY ||
 		   (shared->page_status[slotno] == SLRU_PAGE_VALID &&
 			!shared->page_dirty[slotno]) ||
@@ -417,7 +417,7 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 		bool		ok;
 
 		/* See if page already is in memory; if not, pick victim slot */
-		slotno = SlruSelectLRUPage(ctl, pageno);
+		slotno = SlruSelectLRUPage(ctl, pageno, min_lsn);
 
 		/* Did we find the page in memory? */
 		if (shared->page_number[slotno] == pageno &&
@@ -439,12 +439,6 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 			}
 			/* Otherwise, it's ready to use */
 			SlruRecentlyUsed(shared, slotno);
-
-			if (min_lsn != InvalidXLogRecPtr ||
-			min_lsn <= shared->page_lsn[slotno]) {
-				// We have not found the page at the required lsn.
-				continue;
-			}
 
 			/* update the stats counter of pages found in the SLRU */
 			pgstat_count_slru_page_hit(shared->slru_stats_idx);
@@ -1103,7 +1097,7 @@ SlruReportIOError(SlruCtl ctl, int pageno, TransactionId xid)
  * Control lock must be held at entry, and will be held at exit.
  */
 static int
-SlruSelectLRUPage(SlruCtl ctl, int pageno)
+SlruSelectLRUPage(SlruCtl ctl, int pageno, XLogRecPtr min_lsn)
 {
 	SlruShared	shared = ctl->shared;
 
@@ -1123,8 +1117,10 @@ SlruSelectLRUPage(SlruCtl ctl, int pageno)
 		for (slotno = 0; slotno < shared->num_slots; slotno++)
 		{
 			if (shared->page_number[slotno] == pageno &&
-				shared->page_status[slotno] != SLRU_PAGE_EMPTY)
-				return slotno;
+				shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
+				(min_lsn == InvalidXLogRecPtr ||
+				min_lsn <= shared->page_lsn[slotno]))
+			return slotno;
 		}
 
 		/*

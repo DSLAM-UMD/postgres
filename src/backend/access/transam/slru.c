@@ -171,7 +171,7 @@ SimpleLruShmemSize(int nslots, int nlsns)
 	sz += MAXALIGN(nslots * sizeof(int));	/* page_number[] */
 	sz += MAXALIGN(nslots * sizeof(int));	/* page_lru_count[] */
 	sz += MAXALIGN(nslots * sizeof(XLogRecPtr));	/* page_lsn[] */
-	sz += MAXALIGN(nslots * sizeof(LWLockPadded)); /* buffer_locks[] */
+	sz += MAXALIGN(nslots * sizeof(LWLockPadded));	/* buffer_locks[] */
 
 	if (nlsns > 0)
 		sz += MAXALIGN(nslots * nlsns * sizeof(XLogRecPtr));	/* group_lsn[] */
@@ -304,8 +304,8 @@ SimpleLruZeroPage(SlruCtl ctl, int pageno)
 	shared->page_number[slotno] = pageno;
 	shared->page_status[slotno] = SLRU_PAGE_VALID;
 	shared->page_dirty[slotno] = true;
-	SlruRecentlyUsed(shared, slotno);
 	shared->page_lsn[slotno] = InvalidXLogRecPtr;
+	SlruRecentlyUsed(shared, slotno);
 
 	/* Set the buffer to zeroes */
 	MemSet(shared->page_buffer[slotno], 0, BLCKSZ);
@@ -404,8 +404,8 @@ SimpleLruWaitIO(SlruCtl ctl, int slotno)
  * Control lock must be held at entry, and will be held at exit.
  */
 int
-SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
-				  XLogRecPtr min_lsn, TransactionId xid)
+SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok, TransactionId xid,
+				  XLogRecPtr min_lsn)
 {
 	SlruShared	shared = ctl->shared;
 
@@ -422,7 +422,7 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
 		if (shared->page_number[slotno] == pageno &&
 			shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
 			(min_lsn == InvalidXLogRecPtr ||
-			min_lsn <= shared->page_lsn[slotno]))
+			 min_lsn <= shared->page_lsn[slotno]))
 		{
 			/*
 			 * If page is still being read in, we must wait for I/O.  Likewise
@@ -507,8 +507,7 @@ SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
  * It is unspecified whether the lock will be shared or exclusive.
  */
 int
-SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, XLogRecPtr min_lsn,
-						   TransactionId xid)
+SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, TransactionId xid, XLogRecPtr min_lsn)
 {
 	SlruShared	shared = ctl->shared;
 	int			slotno;
@@ -526,7 +525,7 @@ SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno, XLogRecPtr min_lsn,
 			shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
 			shared->page_status[slotno] != SLRU_PAGE_READ_IN_PROGRESS &&
 			(min_lsn == InvalidXLogRecPtr ||
-			min_lsn <= shared->page_lsn[slotno]))
+			 min_lsn <= shared->page_lsn[slotno]))
 		{
 			/* See comments for SlruRecentlyUsed macro */
 			SlruRecentlyUsed(shared, slotno);
@@ -1118,7 +1117,7 @@ SlruSelectLRUPage(SlruCtl ctl, int pageno, XLogRecPtr min_lsn)
 			if (shared->page_number[slotno] == pageno &&
 				shared->page_status[slotno] != SLRU_PAGE_EMPTY &&
 				(min_lsn == InvalidXLogRecPtr ||
-				min_lsn <= shared->page_lsn[slotno]))
+				 min_lsn <= shared->page_lsn[slotno]))
 			return slotno;
 		}
 

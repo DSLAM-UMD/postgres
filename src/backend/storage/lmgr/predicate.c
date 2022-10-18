@@ -962,7 +962,7 @@ SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo)
 	}
 	else
 		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, xid,
-									InvalidXLogRecPtr);
+								   InvalidXLogRecPtr);
 
     SerialValue(slotno, xid) = minConflictCommitSeqNo;
 	SerialSlruCtl->shared->page_dirty[slotno] = true;

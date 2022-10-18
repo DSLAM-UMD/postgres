@@ -152,9 +152,9 @@ extern void SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
                           SyncRequestHandler sync_handler);
 extern int	SimpleLruZeroPage(SlruCtl ctl, int pageno);
 extern int	SimpleLruReadPage(SlruCtl ctl, int pageno, bool write_ok,
-                             XLogRecPtr min_lsn, TransactionId xid);
+                              TransactionId xid, XLogRecPtr min_lsn);
 extern int  SimpleLruReadPage_ReadOnly(SlruCtl ctl, int pageno,
-                                       XLogRecPtr min_lsn, TransactionId xid);
+                                       TransactionId xid, XLogRecPtr min_lsn);
 extern void SimpleLruWritePage(SlruCtl ctl, int slotno);
 extern void SimpleLruWriteAll(SlruCtl ctl, bool allow_redirtied);
 #ifdef USE_ASSERT_CHECKING

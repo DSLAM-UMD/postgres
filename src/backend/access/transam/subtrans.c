@@ -83,8 +83,7 @@ SubTransSetParent(TransactionId xid, TransactionId parent)
 
 	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
-	slotno = SimpleLruReadPage(SubTransCtl, pageno, true, xid,
-								InvalidXLogRecPtr);
+	slotno = SimpleLruReadPage(SubTransCtl, pageno, true, xid, InvalidXLogRecPtr);
 	ptr = (TransactionId *) SubTransCtl->shared->page_buffer[slotno];
 	ptr += entryno;
 

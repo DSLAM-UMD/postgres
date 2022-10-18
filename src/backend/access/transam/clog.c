@@ -359,7 +359,7 @@ TransactionIdSetPageStatusInternal(TransactionId xid, int nsubxids,
 	 * we think.
 	 */
 	slotno = SimpleLruReadPage(XactCtl, pageno, XLogRecPtrIsInvalid(lsn),
-								xid, InvalidXLogRecPtr);
+							   xid, InvalidXLogRecPtr);
 
         /*
 	 * Set the main transaction id, if any.
@@ -800,8 +800,7 @@ TrimCLOG(void)
 		int			slotno;
 		char	   *byteptr;
 
-		slotno = SimpleLruReadPage(XactCtl, pageno, false, xid,
-									InvalidXLogRecPtr);
+		slotno = SimpleLruReadPage(XactCtl, pageno, false, xid, InvalidXLogRecPtr);
 		byteptr = XactCtl->shared->page_buffer[slotno] + byteno;
 
 		/* Zero so-far-unused positions in the current byte */

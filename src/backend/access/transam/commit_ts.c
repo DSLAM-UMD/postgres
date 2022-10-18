@@ -222,8 +222,7 @@ SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 
 	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
 
-	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, xid,
-								InvalidXLogRecPtr);
+	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, xid, InvalidXLogRecPtr);
 
         TransactionIdSetCommitTs(xid, ts, nodeid, slotno);
 	for (i = 0; i < nsubxids; i++)
@@ -328,8 +327,7 @@ TransactionIdGetCommitTsData(TransactionId xid, TimestampTz *ts,
 	}
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
-	slotno = SimpleLruReadPage_ReadOnly(CommitTsCtl, pageno, xid,
-										InvalidXLogRecPtr);
+	slotno = SimpleLruReadPage_ReadOnly(CommitTsCtl, pageno, xid, InvalidXLogRecPtr);
 	memcpy(&entry,
 		   CommitTsCtl->shared->page_buffer[slotno] +
 		   SizeOfCommitTimestampEntry * entryno,

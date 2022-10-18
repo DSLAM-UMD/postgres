@@ -225,7 +225,7 @@ SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 	LWLockAcquire(CommitTsSLRULock, LW_EXCLUSIVE);
 
 	slotno = SimpleLruReadPage(CommitTsCtl, pageno, true, xid,
-								InvalidXLogRecPtr);
+							   InvalidXLogRecPtr);
 
         TransactionIdSetCommitTs(xid, ts, nodeid, slotno);
 	for (i = 0; i < nsubxids; i++)

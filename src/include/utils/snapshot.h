@@ -212,12 +212,6 @@ typedef struct SnapshotData
 	XLogRecPtr	lsn;			/* position in the WAL stream when taken */
 
 	/*
-	 * SnapshotCSN for snapshot isolation support.
-	 * Will be used only if enable_csn_snapshot is enabled.
-	 */
-	SnapshotCSN	snapshot_csn;
-
-	/*
 	 * The transaction completion count at the time GetSnapshotData() built
 	 * this snapshot. Allows to avoid re-computing static snapshots when no
 	 * transactions completed since the last GetSnapshotData().

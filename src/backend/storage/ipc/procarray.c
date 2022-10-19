@@ -2216,7 +2216,6 @@ GetSnapshotData(Snapshot snapshot)
 	int			count = 0;
 	int			subcount = 0;
 	bool		suboverflowed = false;
-	XidCSN	xid_csn = FrozenXidCSN;
 	FullTransactionId latest_completed;
 	TransactionId oldestxid;
 	int			mypgxactoff;
@@ -2449,13 +2448,6 @@ GetSnapshotData(Snapshot snapshot)
 	if (!TransactionIdIsValid(MyProc->xmin))
 		MyProc->xmin = TransactionXmin = xmin;
 
-	/*
-	 * Take XidCSN under ProcArrayLock so the snapshot stays
-	 * synchronized.
-	 */
-	if (!snapshot->takenDuringRecovery && get_csnlog_status())
-		xid_csn = GetLastAssignedCSN(false);
-
 	LWLockRelease(ProcArrayLock);
 
 	/* maintain state for GlobalVis* */
@@ -2563,7 +2555,6 @@ GetSnapshotData(Snapshot snapshot)
 	snapshot->copied = false;
 
 	GetSnapshotDataInitOldSnapshot(snapshot);
-	snapshot->snapshot_csn = xid_csn;
 
 	return snapshot;
 }

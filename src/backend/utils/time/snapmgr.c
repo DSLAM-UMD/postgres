@@ -193,7 +193,6 @@ typedef struct SerializedSnapshotData
 	CommandId	curcid;
 	TimestampTz whenTaken;
 	XLogRecPtr	lsn;
-	XidCSN	xid_csn;
 } SerializedSnapshotData;
 
 Size
@@ -2135,7 +2134,6 @@ SerializeSnapshot(Snapshot snapshot, char *start_address)
 	serialized_snapshot.curcid = snapshot->curcid;
 	serialized_snapshot.whenTaken = snapshot->whenTaken;
 	serialized_snapshot.lsn = snapshot->lsn;
-	serialized_snapshot.xid_csn = snapshot->snapshot_csn;
 
 	/*
 	 * Ignore the SubXID array if it has overflowed, unless the snapshot was
@@ -2210,7 +2208,6 @@ RestoreSnapshot(char *start_address)
 	snapshot->curcid = serialized_snapshot.curcid;
 	snapshot->whenTaken = serialized_snapshot.whenTaken;
 	snapshot->lsn = serialized_snapshot.lsn;
-	snapshot->snapshot_csn = serialized_snapshot.xid_csn;
 	snapshot->snapXactCompletionCount = 0;
 
 	/* Copy XIDs, if present. */
@@ -2259,34 +2256,34 @@ RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc)
 bool
 XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 {
-	bool in_snapshot;
-		in_snapshot = XidInLocalMVCCSnapshot(xid, snapshot);
-	if (!get_csnlog_status())
-	{
-		Assert(XidCSNIsFrozen(snapshot->snapshot_csn));
-		return in_snapshot;
-	}
+//	bool in_snapshot;
+	return XidInLocalMVCCSnapshot(xid, snapshot);
+// 	if (!get_csnlog_status())
+// 	{
+// 		Assert(XidCSNIsFrozen(snapshot->snapshot_csn));
+// 		return in_snapshot;
+// 	}
 
-	if (in_snapshot)
-	{
-		/*
-		 * This xid may be already in unknown state and in that case
-		 * we must wait and recheck.
-		 */
-		return XidInvisibleInCSNSnapshot(xid, snapshot);
-	}
-	else
-	{
-#ifdef USE_ASSERT_CHECKING
-		/* Check that csn snapshot gives the same results as local one */
-		if (XidInvisibleInCSNSnapshot(xid, snapshot))
-		{
-			XidCSN gcsn = TransactionIdGetXidCSN(xid);
-			Assert(XidCSNIsAborted(gcsn) || XidCSNIsInProgress(gcsn));
-		}
-#endif
-		return false;
-	}
+// 	if (in_snapshot)
+// 	{
+// 		/*
+// 		 * This xid may be already in unknown state and in that case
+// 		 * we must wait and recheck.
+// 		 */
+// 		return XidInvisibleInCSNSnapshot(xid, snapshot);
+// 	}
+// 	else
+// 	{
+// #ifdef USE_ASSERT_CHECKING
+// 		/* Check that csn snapshot gives the same results as local one */
+// 		if (XidInvisibleInCSNSnapshot(xid, snapshot))
+// 		{
+// 			XidCSN gcsn = TransactionIdGetXidCSN(xid);
+// 			Assert(XidCSNIsAborted(gcsn) || XidCSNIsInProgress(gcsn));
+// 		}
+// #endif
+// 		return false;
+// 	}
 }
 
 /*

@@ -14,10 +14,11 @@
 
 #include "access/csn_log.h"
 #include "access/csn_snapshot.h"
+#include "access/remotexact.h"
 #include "access/transam.h"
-#include "access/xlog.h"
 #include "access/twophase.h"
 #include "access/xact.h"
+#include "access/xlog.h"
 #include "portability/instr_time.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
@@ -148,7 +149,7 @@ SetAssignedCSN(PGPROC *proc, SnapshotCSN csn, bool locked) {
  * xids beyond TransactionXmin and InDoubt states.
  */
 XidCSN
-TransactionIdGetXidCSN(TransactionId xid)
+TransactionIdGetXidCSN(int region, TransactionId xid)
 {
 	XidCSN 			 xid_csn;
 
@@ -181,7 +182,7 @@ TransactionIdGetXidCSN(TransactionId xid)
 	}
 
 	if (FrozenTransactionId != xmin_for_csn ||
-					TransactionIdPrecedes(xmin_for_csn, TransactionXmin))
+		TransactionIdPrecedes(xmin_for_csn, TransactionXmin))
 	{
 		xmin_for_csn = TransactionXmin;
 	}
@@ -196,7 +197,7 @@ TransactionIdGetXidCSN(TransactionId xid)
 		return FrozenXidCSN;
 
 	/* Read XidCSN from SLRU */
-	xid_csn = CSNLogGetCSNByXid(xid);
+	xid_csn = CSNLogGetCSNByXid(region, xid);
 
 	/*
 	 * If we faced InDoubt state then transaction is beeing committed and we
@@ -207,14 +208,13 @@ TransactionIdGetXidCSN(TransactionId xid)
 	if (XidCSNIsInDoubt(xid_csn))
 	{
 		XactLockTableWait(xid, NULL, NULL, XLTW_None);
-		xid_csn = CSNLogGetCSNByXid(xid);
-		Assert(XidCSNIsNormal(xid_csn) ||
-				XidCSNIsAborted(xid_csn));
+		xid_csn = CSNLogGetCSNByXid(region, xid);
+		Assert(XidCSNIsNormal(xid_csn) || XidCSNIsAborted(xid_csn));
 	}
 
 	Assert(XidCSNIsNormal(xid_csn) ||
-			XidCSNIsInProgress(xid_csn) ||
-			XidCSNIsAborted(xid_csn));
+		   XidCSNIsInProgress(xid_csn) ||
+		   XidCSNIsAborted(xid_csn));
 
 	return xid_csn;
 }
@@ -229,36 +229,36 @@ TransactionIdGetXidCSN(TransactionId xid)
  * identicalness of XidInvisibleInCSNSnapshot/XidInLocalMVCCSnapshot in
  * case of ordinary snapshot.
  */
-bool
-XidInvisibleInCSNSnapshot(TransactionId xid, Snapshot snapshot)
-{
-	XidCSN csn;
+// bool
+// XidInvisibleInCSNSnapshot(TransactionId xid, Snapshot snapshot)
+// {
+// 	XidCSN csn;
 
-	Assert(get_csnlog_status());
+// 	Assert(get_csnlog_status());
 
-	csn = TransactionIdGetXidCSN(xid);
+// 	csn = TransactionIdGetXidCSN(xid);
 
-	if (XidCSNIsNormal(csn))
-	{
-		if (csn < snapshot->snapshot_csn)
-			return false;
-		else
-			return true;
-	}
-	else if (XidCSNIsFrozen(csn))
-	{
-		/* It is bootstrap or frozen transaction */
-		return false;
-	}
-	else
-	{
-		/* It is aborted or in-progress */
-		Assert(XidCSNIsAborted(csn) || XidCSNIsInProgress(csn));
-		if (XidCSNIsAborted(csn))
-			Assert(TransactionIdDidAbort(xid));
-		return true;
-	}
-}
+// 	if (XidCSNIsNormal(csn))
+// 	{
+// 		if (csn < snapshot->snapshot_csn)
+// 			return false;
+// 		else
+// 			return true;
+// 	}
+// 	else if (XidCSNIsFrozen(csn))
+// 	{
+// 		/* It is bootstrap or frozen transaction */
+// 		return false;
+// 	}
+// 	else
+// 	{
+// 		/* It is aborted or in-progress */
+// 		Assert(XidCSNIsAborted(csn) || XidCSNIsInProgress(csn));
+// 		if (XidCSNIsAborted(csn))
+// 			Assert(TransactionIdDidAbort(xid));
+// 		return true;
+// 	}
+// }
 
 
 /*****************************************************************************
@@ -277,7 +277,6 @@ XidInvisibleInCSNSnapshot(TransactionId xid, Snapshot snapshot)
  * CSNSnapshotAbort is slightly different comparing to commit because abort
  * can skip InDoubt phase and can be called for transaction subtree.
  *****************************************************************************/
-
 
 /*
  * CSNSnapshotAbort
@@ -338,7 +337,7 @@ CSNSnapshotPrecommit(PGPROC *proc, TransactionId xid,
 	{
 		/* Otherwise we should have valid XidCSN by this time */
 		Assert(XidCSNIsNormal(oldassignedXidCsn));
-		Assert(XidCSNIsInDoubt(CSNLogGetCSNByXid(xid)));
+		Assert(XidCSNIsInDoubt(CSNLogGetCSNByXid(current_region, xid)));
 	}
 }
 

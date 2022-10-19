@@ -33,8 +33,8 @@ typedef struct xl_xidcsn_set
 
 
 extern void CSNLogSetCSN(TransactionId xid, int nsubxids,
-							TransactionId *subxids, XidCSN csn, bool write_xlog);
-extern XidCSN CSNLogGetCSNByXid(TransactionId xid);
+						 TransactionId *subxids, XidCSN csn, bool write_xlog);
+extern XidCSN CSNLogGetCSNByXid(int region, TransactionId xid);
 
 extern Size CSNLogShmemSize(void);
 extern void CSNLogShmemInit(void);

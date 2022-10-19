@@ -76,7 +76,7 @@ CSNshapshotShared csnShared = NULL;
  * region = current_region for all writes and relation's region for reads.
  */
 #define TransactionIdToPage(xid, region) \
-  (((xid / (TransactionId)CSN_LOG_XACTS_PER_PAGE) * MAX_REGIONS) + region)
+	(((xid / (TransactionId)CSN_LOG_XACTS_PER_PAGE) * MAX_REGIONS) + region)
 #define TransactionIdToPgIndex(xid) ((xid) % (TransactionId) CSN_LOG_XACTS_PER_PAGE)
 
 /*
@@ -89,13 +89,10 @@ static int	ZeroCSNLogPage(int pageno, bool write_xlog);
 static void ZeroTruncateCSNLogPage(int pageno, bool write_xlog);
 static bool CSNLogPagePrecedes(int page1, int page2);
 static void CSNLogSetPageStatus(TransactionId xid, int nsubxids,
-									  TransactionId *subxids,
-									  XidCSN csn, int pageno);
-static void CSNLogSetCSNInSlot(TransactionId xid, XidCSN csn,
-									  int slotno);
+								TransactionId *subxids,
+								XidCSN csn, int pageno);
+static void CSNLogSetCSNInSlot(TransactionId xid, XidCSN csn, int slotno);
 
-static void WriteXidCsnXlogRec(TransactionId xid, int nsubxids,
-					 TransactionId *subxids, XidCSN csn);
 static void WriteZeroCSNPageXlogRec(int pageno);
 static void WriteTruncateCSNXlogRec(int pageno);
 
@@ -116,7 +113,7 @@ static void WriteTruncateCSNXlogRec(int pageno);
  */
 void
 CSNLogSetCSN(TransactionId xid, int nsubxids,
-					 TransactionId *subxids, XidCSN csn, bool write_xlog)
+			 TransactionId *subxids, XidCSN csn, bool write_xlog)
 {
 	int			pageno;
 	int			i = 0;
@@ -125,10 +122,6 @@ CSNLogSetCSN(TransactionId xid, int nsubxids,
 	Assert(TransactionIdIsValid(xid));
 
 	pageno = TransactionIdToPage(xid, current_region);  /* get page of parent */
-
-	// TODO(pooja): Remove this part entirely?
-	// if(write_xlog)
-	// 	WriteXidCsnXlogRec(xid, nsubxids, subxids, csn);
 
 	for (;;)
 	{
@@ -158,8 +151,8 @@ CSNLogSetCSN(TransactionId xid, int nsubxids,
  */
 static void
 CSNLogSetPageStatus(TransactionId xid, int nsubxids,
-						   TransactionId *subxids,
-						   XidCSN csn, int pageno)
+					TransactionId *subxids,
+					XidCSN csn, int pageno)
 {
 	int			slotno;
 	int			i;
@@ -210,15 +203,17 @@ CSNLogSetCSNInSlot(TransactionId xid, XidCSN csn, int slotno)
  * intended caller.
  */
 XidCSN
-CSNLogGetCSNByXid(TransactionId xid)
+CSNLogGetCSNByXid(int region, TransactionId xid)
 {
-	// TODO(pooja): Use region based on relation instead of current_region.
-	int			pageno = TransactionIdToPage(xid, current_region);
+	int			pageno = TransactionIdToPage(xid, region);
 	int			entryno = TransactionIdToPgIndex(xid);
 	int			slotno;
 	XLogRecPtr  min_lsn = InvalidXLogRecPtr;
 	XidCSN *ptr;
 	XidCSN	xid_csn;
+
+	if (RegionIsRemote(region))
+		min_lsn = GetRegionLsn(region);
 
 	/* lock is acquired by SimpleLruReadPage_ReadOnly */
 	slotno = SimpleLruReadPage_ReadOnly(CsnlogCtl, pageno, xid, min_lsn);
@@ -264,8 +259,8 @@ CSNLogShmemInit(void)
 				  SYNC_HANDLER_CSN);
 
 	csnShared = (CSNshapshotShared) ShmemInitStruct("CSNlog shared",
-									 sizeof(CSNshapshotSharedData),
-									 &found);
+									 				sizeof(CSNshapshotSharedData),
+													&found);
 }
 
 /*
@@ -486,7 +481,7 @@ CSNLogPagePrecedes(int page1, int page2)
 
     // Either of the pages don't belong to the current region, so return false.
     if (((page1 - current_region) % MAX_REGIONS != 0) ||
-        	((page2 - current_region) % MAX_REGIONS != 0)) {
+        ((page2 - current_region) % MAX_REGIONS != 0)) {
         return false;
     }
 
@@ -506,30 +501,13 @@ WriteAssignCSNXlogRec(XidCSN xidcsn)
 	XidCSN log_csn = 0;
 
 	if(xidcsn <= get_last_log_wal_csn())
-	{
 		return;
-	}
+
 	log_csn = xidcsn;
 
 	XLogBeginInsert();
 	XLogRegisterData((char *) (&log_csn), sizeof(XidCSN));
 	XLogInsert(RM_CSNLOG_ID, XLOG_CSN_ASSIGNMENT);
-}
-
-static void
-WriteXidCsnXlogRec(TransactionId xid, int nsubxids,
-					 TransactionId *subxids, XidCSN csn)
-{
-	xl_xidcsn_set 	xlrec;
-
-	xlrec.xtop = xid;
-	xlrec.nsubxacts = nsubxids;
-	xlrec.xidcsn = csn;
-
-	XLogBeginInsert();
-	XLogRegisterData((char *) &xlrec, MinSizeOfXidCSNSet);
-	XLogRegisterData((char *) subxids, nsubxids * sizeof(TransactionId));
-	XLogInsert(RM_CSNLOG_ID, XLOG_CSN_SETXIDCSN);
 }
 
 /*

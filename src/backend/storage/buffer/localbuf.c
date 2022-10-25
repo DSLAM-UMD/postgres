@@ -36,6 +36,21 @@ typedef struct
 {
 	BufferTag	key;			/* Tag of a disk page */
 	int			id;				/* Associated local buffer's index */
+
+	/*
+	 * Remotexact
+	 * 
+	 * When a transaction writes to a remote relation, it may create
+	 * new (temporary) pages, whose LSNs are set to 0. A future transaction
+	 * in the same session will not be able to tell if a page with LSN 0
+	 * was created by itself or by a previous transaction.
+	 * 
+	 * We store the local xid of the transaction that most recently
+	 * accessed a page here. Since only the transaction that creates a
+	 * temporary page will ever access that page, this value can tell
+	 * who created the temporary page.
+	 */
+	TransactionId	lxid; 
 } LocalBufferLookupEnt;
 
 /* Note: this macro only works on local buffers, not shared ones! */
@@ -158,15 +173,21 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		if (buf_state & BM_VALID) {
 			*foundPtr = true;
 
-			/* If this buffer is for a remote relation, invalidate the content of the
-				buffer if the LSN does not match with the regional LSN.  
-			*/
+			/* 
+			 *	Remotexact
+			 *
+			 *	If this buffer is for a remote relation, invalidate the content of the
+			 *	buffer if the LSN does not match with the regional LSN, or the page
+			 *  was temporarily created by a different transaction. 
+			 */
 			if (IsMultiRegion() && RegionIsRemote(smgr->smgr_region))
 			{
 				XLogRecPtr lsn = GetRegionLsn(smgr->smgr_region);
 				Page page = BufferGetPage(BufferDescriptorGetBuffer(bufHdr));
+				XLogRecPtr page_lsn = PageGetLSN(page);
 
-				if (lsn != PageGetLSN(page))
+				if ((page_lsn == 0 && hresult->lxid != MyProc->lxid) ||
+					(page_lsn != 0 && page_lsn != lsn))
 				{
 					buf_state &= ~BM_VALID;
 					pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
@@ -295,6 +316,8 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	if (found)					/* shouldn't happen */
 		elog(ERROR, "local buffer hash table corrupted");
 	hresult->id = b;
+	/* Remotexact */
+	hresult->lxid = MyProc->lxid;
 
 	/*
 	 * it's all ours now.

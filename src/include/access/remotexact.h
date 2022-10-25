@@ -25,11 +25,14 @@
 /*
  * RelationGetRegion
  *		Fetch relation's region.
- *
- * Returns UnknownRegion if there is no smgr
  */
-#define RelationGetRegion(relation) \
-	( (relation)->rd_smgr != NULL ? (relation)->rd_smgr->smgr_region : UNKNOWN_REGION )
+#define RelationGetRegion(relation) ((relation)->rd_rel->relregion)
+
+/*
+ * RelationIsRemote
+ *		Determine if a relation is a remote relation
+ */
+#define RelationIsRemote(relation) (RegionIsRemote(RelationGetRegion(relation)))
 
 /* GUC variable */
 extern int current_region;

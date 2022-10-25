@@ -2325,11 +2325,12 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	CacheInvalidateHeapTuple(relation, heaptup, NULL);
 
 	/* 
+	 * Remotexact 
 	 * Put into the write set of remotexact. 
 	 * TODO (ctring): speculative inserts are ignored. Need a mechanism to keep
 	 * 		 track of whether they are finished or canceled.
 	 */
-	if (!(options & HEAP_INSERT_SPECULATIVE))
+	if (!(options & HEAP_INSERT_SPECULATIVE) && RelationIsUsedInRemoteXact(relation))
 		CollectInsert(relation, heaptup);
 
 	/* Note: speculative insertions are counted too, even if aborted later */
@@ -2732,10 +2733,12 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 	}
 
 	/* 
+	 * Remotexact 
 	 * Put all tuples into the write set of remotexact
 	 */
-	for (i = 0; i < ntuples; i++)
-		CollectInsert(relation, heaptuples[i]);
+	if (RelationIsUsedInRemoteXact(relation))
+		for (i = 0; i < ntuples; i++)
+			CollectInsert(relation, heaptuples[i]);
 
 	/* copy t_self fields back to the caller's slots */
 	for (i = 0; i < ntuples; i++)
@@ -3055,6 +3058,7 @@ l1:
 	 */
 	old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied);
 
+	/* Remotexact */ 
 	if (RelationIsUsedInRemoteXact(relation))
 	{
 		/*
@@ -4022,7 +4026,7 @@ l2:
 										   bms_overlap(modified_attrs, id_attrs) ||
 										   id_has_external,
 										   &old_key_copied);
-
+	/* Remotexact */
 	if (RelationIsUsedInRemoteXact(relation))
 	{
 		/*
@@ -8744,6 +8748,7 @@ ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool key_required,
 
 	*copy = false;
 
+	/* Remotexact */
 	if (!RelationIsLogicallyLogged(relation) && !RelationIsUsedInRemoteXact(relation))
 		return NULL;
 

@@ -14,6 +14,7 @@
 #ifndef REL_H
 #define REL_H
 
+#include "access/remotexact.h"
 #include "access/tupdesc.h"
 #include "access/xlog.h"
 #include "catalog/pg_class.h"
@@ -611,10 +612,12 @@ RelationGetSmgr(Relation rel)
  * truncated in the current transaction.  See "Skipping WAL for New
  * RelFileNode" in src/backend/access/transam/README.
  */
-#define RelationNeedsWAL(relation)										\
-	(RelationIsPermanent(relation) && (XLogIsNeeded() ||				\
-	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
-	   relation->rd_firstRelfilenodeSubid == InvalidSubTransactionId)))
+/* Remotexact */
+#define RelationNeedsWAL(relation)											\
+	(RelationIsPermanent(relation) && (XLogIsNeeded() ||					\
+	  (relation->rd_createSubid == InvalidSubTransactionId &&				\
+	   relation->rd_firstRelfilenodeSubid == InvalidSubTransactionId)) &&	\
+	   !RelationIsRemote(relation))
 
 /*
  * RelationUsesLocalBuffers
@@ -697,10 +700,16 @@ RelationGetSmgr(Relation rel)
  * 
  * This is similar to RelationIsLogicallyLogged but we only want to generate the
  * extra information for logical replication without actually WAL-logging it.
+ * Only a subset of the conditions in RelationNeedsWAL is used here because we
+ * still want this to be valid for remote relations.
+ * 
+ * Remotexact
  */
 #define RelationIsUsedInRemoteXact(relation) \
 	(XLogRemoteXactInfoActive() && \
-	 RelationNeedsWAL(relation) && \
+	 (RelationIsPermanent(relation) && (XLogIsNeeded() ||	\
+	  (relation->rd_createSubid == InvalidSubTransactionId &&	\
+	   relation->rd_firstRelfilenodeSubid == InvalidSubTransactionId))) && \
 	 (relation)->rd_rel->relkind != RELKIND_FOREIGN_TABLE && \
 	 !IsCatalogRelation(relation))
 

@@ -90,7 +90,7 @@ static bool heap_acquire_tuplock(Relation relation, ItemPointer tid,
 								 bool *have_tuple_lock);
 static void compute_new_xmax_infomask(TransactionId xmax, uint16 old_infomask,
 									  uint16 old_infomask2, TransactionId add_to_xmax,
-									  LockTupleMode mode, bool is_update,
+									  LockTupleMode mode, bool is_update, bool is_remote,
 									  TransactionId *result_xmax, uint16 *result_infomask,
 									  uint16 *result_infomask2);
 static TM_Result heap_lock_updated_tuple(Relation rel, HeapTuple tuple,
@@ -2320,7 +2320,16 @@ heap_prepare_insert(Relation relation, HeapTuple tup, TransactionId xid,
 	tup->t_data->t_infomask &= ~(HEAP_XACT_MASK);
 	tup->t_data->t_infomask2 &= ~(HEAP2_XACT_MASK);
 	tup->t_data->t_infomask |= HEAP_XMAX_INVALID;
-	HeapTupleHeaderSetXmin(tup->t_data, xid);
+	/* 
+	 * Remotexact 
+	 * If this is a remote relation, use a special xid for the xmin of the
+	 * locally created tuple.
+	 */
+	if (RelationIsRemote(relation))
+		HeapTupleHeaderSetXmin(tup->t_data, TemporaryTransactionId);
+	else
+		HeapTupleHeaderSetXmin(tup->t_data, xid);
+	
 	if (options & HEAP_INSERT_FROZEN)
 		HeapTupleHeaderSetXminFrozen(tup->t_data);
 
@@ -2949,6 +2958,7 @@ l1:
 			result = TM_Deleted;
 	}
 
+	// TODO (ctring):  This seems to be related to referential integrity. Investigate more
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
@@ -3028,7 +3038,7 @@ l1:
 
 	compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(tp.t_data),
 							  tp.t_data->t_infomask, tp.t_data->t_infomask2,
-							  xid, LockTupleExclusive, true,
+							  xid, LockTupleExclusive, true, RelationIsRemote(relation),
 							  &new_xmax, &new_infomask, &new_infomask2);
 
 	START_CRIT_SECTION();
@@ -3271,6 +3281,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 	bool		checked_lockers;
 	bool		locker_remains;
 	bool		id_has_external = false;
+	bool		relation_is_remote = RelationIsRemote(relation);
 	TransactionId xmax_new_tuple,
 				xmax_old_tuple;
 	uint16		infomask_old_tuple,
@@ -3611,7 +3622,7 @@ l2:
 		else
 			result = TM_Deleted;
 	}
-
+	// TODO (ctring):  This seems to be related to referential integrity. Investigate more
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
@@ -3676,7 +3687,7 @@ l2:
 	compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(oldtup.t_data),
 							  oldtup.t_data->t_infomask,
 							  oldtup.t_data->t_infomask2,
-							  xid, *lockmode, true,
+							  xid, *lockmode, true, relation_is_remote,
 							  &xmax_old_tuple, &infomask_old_tuple,
 							  &infomask2_old_tuple);
 
@@ -3686,11 +3697,16 @@ l2:
 	 * then use InvalidXid; otherwise, get the xmax from the old tuple.  (In
 	 * rare cases that might also be InvalidXid and yet not have the
 	 * HEAP_XMAX_INVALID bit set; that's fine.)
+	 * 
+	 * Remotexact
+	 * Ignore all locking on the tuple if the relation is remote
 	 */
 	if ((oldtup.t_data->t_infomask & HEAP_XMAX_INVALID) ||
 		HEAP_LOCKED_UPGRADED(oldtup.t_data->t_infomask) ||
 		(checked_lockers && !locker_remains))
 		xmax_new_tuple = InvalidTransactionId;
+	else if (relation_is_remote)
+		xmax_new_tuple = TemporaryTransactionId;
 	else
 		xmax_new_tuple = HeapTupleHeaderGetRawXmax(oldtup.t_data);
 
@@ -3706,8 +3722,11 @@ l2:
 		 * to use on the new tuple depend on what was there on the old one.
 		 * Note that since we're doing an update, the only possibility is that
 		 * the lockers had FOR KEY SHARE lock.
+		 * 
+		 * Remotexact
+		 * Ignore all tuple-level locks on the old tuple.
 		 */
-		if (oldtup.t_data->t_infomask & HEAP_XMAX_IS_MULTI)
+		if (!relation_is_remote && (oldtup.t_data->t_infomask & HEAP_XMAX_IS_MULTI))
 		{
 			GetMultiXactIdHintBits(xmax_new_tuple, &infomask_new_tuple,
 								   &infomask2_new_tuple);
@@ -3725,7 +3744,16 @@ l2:
 	 */
 	newtup->t_data->t_infomask &= ~(HEAP_XACT_MASK);
 	newtup->t_data->t_infomask2 &= ~(HEAP2_XACT_MASK);
-	HeapTupleHeaderSetXmin(newtup->t_data, xid);
+	/* 
+	 * Remotexact 
+	 * If this is a remote relation, use a special xid for the xmin of the
+	 * locally created tuple.
+	 */
+	if (relation_is_remote)
+		HeapTupleHeaderSetXmin(newtup->t_data, TemporaryTransactionId);
+	else
+		HeapTupleHeaderSetXmin(newtup->t_data, xid);
+
 	HeapTupleHeaderSetCmin(newtup->t_data, cid);
 	newtup->t_data->t_infomask |= HEAP_UPDATED | infomask_new_tuple;
 	newtup->t_data->t_infomask2 |= infomask2_new_tuple;
@@ -3793,7 +3821,7 @@ l2:
 		compute_new_xmax_infomask(HeapTupleHeaderGetRawXmax(oldtup.t_data),
 								  oldtup.t_data->t_infomask,
 								  oldtup.t_data->t_infomask2,
-								  xid, *lockmode, false,
+								  xid, *lockmode, false, relation_is_remote,
 								  &xmax_lock_old_tuple, &infomask_lock_old_tuple,
 								  &infomask2_lock_old_tuple);
 
@@ -4419,6 +4447,13 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	bool		have_tuple_lock = false;
 	bool		cleared_all_frozen = false;
 
+	/*
+	 * Remotexact
+	 * Locking is a no-op for remote relations because they are in local buffer
+	 */
+	if (RelationIsRemote(relation))
+		return TM_Ok;
+
 	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 	block = ItemPointerGetBlockNumber(tid);
 
@@ -4981,7 +5016,7 @@ failed:
 	 * state if multixact.c elogs.
 	 */
 	compute_new_xmax_infomask(xmax, old_infomask, tuple->t_data->t_infomask2,
-							  GetCurrentTransactionId(), mode, false,
+							  GetCurrentTransactionId(), mode, false, RelationIsRemote(relation),
 							  &xid, &new_infomask, &new_infomask2);
 
 	START_CRIT_SECTION();
@@ -5148,7 +5183,7 @@ heap_acquire_tuplock(Relation relation, ItemPointer tid, LockTupleMode mode,
 static void
 compute_new_xmax_infomask(TransactionId xmax, uint16 old_infomask,
 						  uint16 old_infomask2, TransactionId add_to_xmax,
-						  LockTupleMode mode, bool is_update,
+						  LockTupleMode mode, bool is_update, bool is_remote,
 						  TransactionId *result_xmax, uint16 *result_infomask,
 						  uint16 *result_infomask2)
 {
@@ -5157,6 +5192,13 @@ compute_new_xmax_infomask(TransactionId xmax, uint16 old_infomask,
 				new_infomask2;
 
 	Assert(TransactionIdIsCurrentTransactionId(add_to_xmax));
+
+	/*
+	 * Remotexact
+	 * If this is a remote relation, use a special xid for the xmax of the local write.
+	 */
+	if (is_remote)
+		add_to_xmax = TemporaryTransactionId;	
 
 l5:
 	new_infomask = 0;
@@ -5205,7 +5247,12 @@ l5:
 			}
 		}
 	}
-	else if (old_infomask & HEAP_XMAX_IS_MULTI)
+	/*
+	 * Remotexact
+	 * We don't need to consider tuple-level locking because the page of a remote relation
+	 * is local to a transaction and locks from a remote region are meaningless.
+	 */
+	else if (!is_remote && (old_infomask & HEAP_XMAX_IS_MULTI))
 	{
 		MultiXactStatus new_status;
 
@@ -5263,7 +5310,12 @@ l5:
 									 new_status);
 		GetMultiXactIdHintBits(new_xmax, &new_infomask, &new_infomask2);
 	}
-	else if (old_infomask & HEAP_XMAX_COMMITTED)
+	/*
+	 * Remotexact
+	 * We only write to alive tuples and this tuple is local to the current transaction 
+	 * so this case cannot happen. 
+	 */
+	else if (!is_remote && (old_infomask & HEAP_XMAX_COMMITTED))
 	{
 		/*
 		 * It's a committed update, so we need to preserve him as updater of
@@ -5287,7 +5339,13 @@ l5:
 		new_xmax = MultiXactIdCreate(xmax, status, add_to_xmax, new_status);
 		GetMultiXactIdHintBits(new_xmax, &new_infomask, &new_infomask2);
 	}
-	else if (TransactionIdIsInProgress(xmax))
+	/*
+	 * Remotexact
+	 * This tuple is local to the current transaction so this case can only happen if xmax
+	 * is the current transaction. The code in this block treats this case the same as the
+	 * what last else block does so we can skip this block entirely.
+	 */
+	else if (!is_remote && TransactionIdIsInProgress(xmax))
 	{
 		/*
 		 * If the XMAX is a valid, in-progress TransactionId, then we need to
@@ -5369,7 +5427,11 @@ l5:
 									 add_to_xmax, new_status);
 		GetMultiXactIdHintBits(new_xmax, &new_infomask, &new_infomask2);
 	}
-	else if (!HEAP_XMAX_IS_LOCKED_ONLY(old_infomask) &&
+	/*
+	 * Remotexact
+	 * This is exactly the same as the HEAP_XMAX_COMMITTED case.
+	 */
+	else if (!is_remote && !HEAP_XMAX_IS_LOCKED_ONLY(old_infomask) &&
 			 TransactionIdDidCommit(xmax))
 	{
 		/*
@@ -5767,7 +5829,7 @@ l4:
 
 		/* compute the new Xmax and infomask values for the tuple ... */
 		compute_new_xmax_infomask(xmax, old_infomask, mytup.t_data->t_infomask2,
-								  xid, mode, false,
+								  xid, mode, false, RelationIsRemote(rel),
 								  &new_xmax, &new_infomask, &new_infomask2);
 
 		if (PageIsAllVisible(BufferGetPage(buf)) &&

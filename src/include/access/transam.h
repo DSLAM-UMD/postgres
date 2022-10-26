@@ -26,12 +26,16 @@
  *
  * FirstNormalTransactionId is the first "normal" transaction id.
  * Note: if you need to change it, you must change pg_class.h as well.
+ * 
+ * Remotexact - TemporaryTransactionId is used when creating/deleting tuples
+ * 				in remote relations.
  * ----------------
  */
 #define InvalidTransactionId		((TransactionId) 0)
 #define BootstrapTransactionId		((TransactionId) 1)
 #define FrozenTransactionId			((TransactionId) 2)
-#define FirstNormalTransactionId	((TransactionId) 3)
+#define TemporaryTransactionId		((TransactionId) 3)
+#define FirstNormalTransactionId	((TransactionId) 4)
 #define MaxTransactionId			((TransactionId) 0xFFFFFFFF)
 
 /* ----------------

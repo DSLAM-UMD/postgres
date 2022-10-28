@@ -442,6 +442,7 @@ InitProcess(void)
 	Assert(pg_atomic_read_u32(&MyProc->clogGroupNext) == INVALID_PGPROCNO);
 
 	pg_atomic_init_u64(&MyProc->assignedXidCsn, InProgressXidCSN);
+	/* Remotexact - Initialize isRemoteXact flag to true. */ 
 	MyProc->isRemoteXact = false;
 
 	/*

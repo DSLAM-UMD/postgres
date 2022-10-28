@@ -308,6 +308,7 @@ struct PGPROC
 	CSN_atomic assignedXidCsn;
 
 	/*
+	 * Remotexact 
 	 * A boolean flag to indicate whether or not the xact run on this process
 	 * is a remotexact. We make it volatile because that enables us to read and
 	 * write on this object without accuring the ProcArray lock. The alternate

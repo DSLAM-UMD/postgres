@@ -443,6 +443,7 @@ InitProcess(void)
 	Assert(pg_atomic_read_u32(&MyProc->clogGroupNext) == INVALID_PGPROCNO);
 
 	pg_atomic_init_u64(&MyProc->assignedXidCsn, InProgressXidCSN);
+	MyProc->isRemoteXact = false;
 
 	/*
 	 * Acquire ownership of the PGPROC's latch, so that we can use WaitLatch

@@ -65,7 +65,6 @@ struct XidCache
 #define		PROC_AFFECTS_ALL_HORIZONS	0x20	/* this proc's xmin must be
 												 * included in vacuum horizons
 												 * in all databases */
-#define		PROC_IS_REMOTEXACT 0x40 	/* currently running a remotexact */
 
 /* flags reset at EOXact */
 #define		PROC_VACUUM_STATE_MASK \
@@ -308,6 +307,18 @@ struct PGPROC
 	 */
 	CSN_atomic assignedXidCsn;
 
+	/*
+	 * A boolean flag to indicate whether or not the xact run on this process
+	 * is a remotexact. We make it volatile because that enables us to read and
+	 * write on this object without accuring the ProcArray lock. The alternate
+	 * considered involed using the *status_flag. However, it is necessary to
+	 * note that we can only check this value while we are certain that the
+	 * process may not exit during the check. This check will be carried out
+	 * in deadlock.c. 
+	 * We can write to it anytime within the same process because we know that
+	 * it can't be cleared while we are executing.
+	 */
+	volatile bool isRemoteXact;
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */

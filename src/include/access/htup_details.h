@@ -274,7 +274,9 @@ struct HeapTupleHeaderData
  * information stored in t_infomask2:
  */
 #define HEAP_NATTS_MASK			0x07FF	/* 11 bits for number of attributes */
-/* bits 0x1800 are available */
+/* Remotexact */
+#define HEAP_XMIN_LOCAL			0x0800  /* xmin was set by a local xact (for remote relation only) */
+#define HEAP_XMAX_LOCAL			0x1000  /* xmax was set by a local xact (for remote relation only) */
 #define HEAP_KEYS_UPDATED		0x2000	/* tuple was updated and key cols
 										 * modified, or tuple deleted */
 #define HEAP_HOT_UPDATED		0x4000	/* tuple was HOT-updated */
@@ -472,6 +474,18 @@ do { \
 #define HeapTupleHeaderSetTypMod(tup, typmod) \
 ( \
 	(tup)->t_choice.t_datum.datum_typmod = (typmod) \
+)
+
+/* Remotexact */
+
+#define HeapTupleHeaderIsXminLocal(tup) \
+( \
+	((tup)->t_infomask2 & HEAP_XMIN_LOCAL) != 0 \
+)
+
+#define HeapTupleHeaderIsXmaxLocal(tup) \
+( \
+	((tup)->t_infomask2 & HEAP_XMAX_LOCAL) != 0 \
 )
 
 /*

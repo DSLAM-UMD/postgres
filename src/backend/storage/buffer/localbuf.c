@@ -176,24 +176,42 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 			/* 
 			 *	Remotexact
 			 *
-			 *	If this buffer is for a remote relation, invalidate the content of the
-			 *	buffer if the LSN does not match with the regional LSN, or the page
-			 *  was temporarily created by a different transaction.
+			 *	If this buffer is for a remote relation, do additional checking to see
+			 *  if we need to invalidate the content of the buffer.
 			 */
 			if (IsMultiRegion() && RegionIsRemote(smgr->smgr_region))
 			{
-				XLogRecPtr lsn = GetRegionLsn(smgr->smgr_region);
+				XLogRecPtr region_lsn = GetRegionLsn(smgr->smgr_region);
 				Page page = BufferGetPage(BufferDescriptorGetBuffer(bufHdr));
 				XLogRecPtr page_lsn = PageGetLSN(page);
+				/*
+				 * A buffer is usable if
+				 * - it was last populated by us OR
+				 * - it was last populated by another transaction AND
+				 * 		+ it is not dirty AND
+				 * 		+ it has the LSN that we would request 
+				 */
+				bool usable = hresult->lxid == MyProc->lxid || (
+					!(buf_state & BM_DIRTY) &&
+					page_lsn == region_lsn);
 
-				if ((page_lsn == 0 && hresult->lxid != MyProc->lxid) ||
-					(page_lsn != 0 && page_lsn != lsn))
+				if (!usable)
 				{
 					buf_state &= ~BM_VALID;
 					pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
 
 					*foundPtr = false;
+
+					ereport(DEBUG1, errmsg("Found non-usable buffer %d for (%d, %d, %d). "
+										   "page_lsn = %ld. region_lsn = %ld. my lxid = %d. lxid = %d",
+										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
+										   page_lsn, region_lsn, MyProc->lxid, hresult->lxid));
 				}
+				else
+					ereport(DEBUG1, errmsg("Found usable buffer %d for (%d, %d, %d). "
+										   "page_lsn = %ld. region_lsn = %ld. my lxid = %d. lxid = %d",
+										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
+										   page_lsn, region_lsn, MyProc->lxid, hresult->lxid));
 			}	
 		}
 		else
@@ -201,6 +219,10 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 			/* Previous read attempt must have failed; try again */
 			*foundPtr = false;
 		}
+
+		/* Remotexact - this buffer is ours now */
+		hresult->lxid = MyProc->lxid;
+
 		return bufHdr;
 	}
 
@@ -316,8 +338,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	if (found)					/* shouldn't happen */
 		elog(ERROR, "local buffer hash table corrupted");
 	hresult->id = b;
-	/* Remotexact */
-	hresult->lxid = MyProc->lxid;
+	hresult->lxid = MyProc->lxid;	/* Remotexact - this buffer is ours now */
 
 	/*
 	 * it's all ours now.

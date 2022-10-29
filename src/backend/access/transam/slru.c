@@ -651,13 +651,12 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 	if (slru_kind_check_hook && (*slru_kind_check_hook)(ctl)) {
 		int			segno = pageno / SLRU_PAGES_PER_SEGMENT;
 		int			rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
-		BlockNumber	blkno = rpageno * BLCKSZ;
 
 		Assert(slru_page_exists_hook);
 
 		pgstat_count_slru_page_exists(ctl->shared->slru_stats_idx);
 
-		return (*slru_page_exists_hook)(ctl, segno, blkno);
+		return (*slru_page_exists_hook)(ctl, segno, rpageno);
 	}
 
 	return SimpleLruDoesPhysicalPageExistDefault(ctl, pageno);
@@ -732,12 +731,11 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno, XLogRecPtr min_lsn)
 		SlruShared	shared = ctl->shared;
 		int			segno = pageno / SLRU_PAGES_PER_SEGMENT;
 		int			rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
-		BlockNumber	blkno = rpageno * BLCKSZ;
 
 		Assert(slru_read_page_hook);
 
 		pgstat_report_wait_start(WAIT_EVENT_SLRU_READ);
-        if (!(*slru_read_page_hook)(ctl, segno, blkno, min_lsn,
+        if (!(*slru_read_page_hook)(ctl, segno, rpageno, min_lsn,
                 					shared->page_buffer[slotno])) {
 			pgstat_report_wait_end();
 			slru_errcause = SLRU_READ_FAILED;

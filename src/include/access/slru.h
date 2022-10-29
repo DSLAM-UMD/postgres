@@ -14,6 +14,7 @@
 #define SLRU_H
 
 #include "access/xlogdefs.h"
+#include "storage/block.h"
 #include "storage/lwlock.h"
 #include "storage/sync.h"
 
@@ -140,8 +141,8 @@ typedef struct SlruCtlData
 typedef SlruCtlData *SlruCtl;
 
 typedef bool (*slru_kind_check_hook_type) (SlruCtl ctl);
-typedef bool (*slru_page_exists_hook_type) (SlruCtl ctl, int segno, off_t offset);
-typedef bool (*slru_read_page_hook_type) (SlruCtl ctl, int segno, off_t offset, XLogRecPtr min_lsn, char *buffer);
+typedef bool (*slru_page_exists_hook_type) (SlruCtl ctl, int segno, BlockNumber blkno);
+typedef bool (*slru_read_page_hook_type) (SlruCtl ctl, int segno, BlockNumber blkno, XLogRecPtr min_lsn, char *buffer);
 extern PGDLLIMPORT slru_kind_check_hook_type slru_kind_check_hook;
 extern PGDLLIMPORT slru_page_exists_hook_type slru_page_exists_hook;
 extern PGDLLIMPORT slru_read_page_hook_type slru_read_page_hook;

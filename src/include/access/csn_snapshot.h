@@ -31,19 +31,15 @@ typedef pg_atomic_uint64 CSN_atomic;
 #define FirstNormalXidCSN 		UINT64CONST(0x4)
 
 #define XidCSNIsInProgress(csn)	((csn) == InProgressXidCSN)
-#define XidCSNIsAborted(csn)		((csn) == AbortedXidCSN)
+#define XidCSNIsAborted(csn)	((csn) == AbortedXidCSN)
 #define XidCSNIsFrozen(csn)		((csn) == FrozenXidCSN)
-#define XidCSNIsInDoubt(csn)		((csn) == InDoubtXidCSN)
+#define XidCSNIsInDoubt(csn)	((csn) == InDoubtXidCSN)
 #define XidCSNIsNormal(csn)		((csn) >= FirstNormalXidCSN)
-
 
 extern Size CSNSnapshotShmemSize(void);
 extern void CSNSnapshotShmemInit(void);
 
-extern SnapshotCSN GetLastAssignedCSN(bool locked);
 extern void SetAssignedCSN(PGPROC *proc, SnapshotCSN csn, bool locked);
-
-// extern bool XidInvisibleInCSNSnapshot(TransactionId xid, Snapshot snapshot);
 
 extern XidCSN TransactionIdGetXidCSN(int region, TransactionId xid);
 

@@ -174,7 +174,6 @@ static TimestampTz AlignTimestampToMinuteBoundary(TimestampTz ts);
 static Snapshot CopySnapshot(Snapshot snapshot);
 static void FreeSnapshot(Snapshot snapshot);
 static void SnapshotResetXmin(void);
-static bool XidInLocalMVCCSnapshot(TransactionId xid, Snapshot snapshot);
 
 /*
  * Snapshot fields to be serialized.
@@ -2249,45 +2248,6 @@ RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc)
 
 /*
  * XidInMVCCSnapshot
- *
- * Check whether this xid is in snapshot. When enable_csn_snapshot is
- * switched off just call XidInLocalMVCCSnapshot().
- */
-bool
-XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
-{
-//	bool in_snapshot;
-	return XidInLocalMVCCSnapshot(xid, snapshot);
-// 	if (!get_csnlog_status())
-// 	{
-// 		Assert(XidCSNIsFrozen(snapshot->snapshot_csn));
-// 		return in_snapshot;
-// 	}
-
-// 	if (in_snapshot)
-// 	{
-// 		/*
-// 		 * This xid may be already in unknown state and in that case
-// 		 * we must wait and recheck.
-// 		 */
-// 		return XidInvisibleInCSNSnapshot(xid, snapshot);
-// 	}
-// 	else
-// 	{
-// #ifdef USE_ASSERT_CHECKING
-// 		/* Check that csn snapshot gives the same results as local one */
-// 		if (XidInvisibleInCSNSnapshot(xid, snapshot))
-// 		{
-// 			XidCSN gcsn = TransactionIdGetXidCSN(xid);
-// 			Assert(XidCSNIsAborted(gcsn) || XidCSNIsInProgress(gcsn));
-// 		}
-// #endif
-// 		return false;
-// 	}
-}
-
-/*
- * XidInLocalMVCCSnapshot
  *		Is the given XID still-in-progress according to the snapshot?
  *
  * Note: GetSnapshotData never stores either top xid or subxids of our own
@@ -2296,8 +2256,8 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
  * TransactionIdIsCurrentTransactionId first, except when it's known the
  * XID could not be ours anyway.
  */
-static bool
-XidInLocalMVCCSnapshot(TransactionId xid, Snapshot snapshot)
+bool
+XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 {
 	uint32		i;
 

@@ -20,6 +20,9 @@
 #include "postgres.h"
 
 #include "access/clog.h"
+#include "access/csn_log.h"
+#include "access/csn_snapshot.h"
+#include "access/remotexact.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
 #include "utils/snapmgr.h"
@@ -168,6 +171,47 @@ TransactionIdDidCommit(TransactionId transactionId)
 	 * It's not committed.
 	 */
 	return false;
+}
+
+/*
+ * RemoteTransactionIdDidCommit
+ *		True iff transaction associated with the remote identifier did commit.
+ *
+ * Note:
+ *		Assumes transaction identifier is valid and exists in csn_log.
+ *
+ * Remotexact
+ */
+bool							/* true if given transaction committed */
+RemoteTransactionIdDidCommit(int region, TransactionId transactionId)
+{
+	XidCSN csn;
+
+	// TODO (ctring): cache the fetched id like in TransactionLogFetch?
+	
+	/*
+	 * Also, check to see if the transaction ID is a permanent one.
+	 */
+	if (!TransactionIdIsNormal(transactionId))
+	{
+		if (TransactionIdEquals(transactionId, BootstrapTransactionId))
+			return true;
+		if (TransactionIdEquals(transactionId, FrozenTransactionId))
+			return true;
+		return false;
+	}
+
+	/*
+	 * Get the csn corresponding to the transaction id.
+	 */
+	csn = CSNLogGetCSNByXid(region, transactionId);
+
+	/*
+	 * An XID is committed if it has a frozen CSN or a normal CSN that
+	 * is not newer than the LSN snapshot of the given region 
+	 */
+	return XidCSNIsFrozen(csn) || (
+		   XidCSNIsNormal(csn) && csn <= GetRegionLsn(region));
 }
 
 /*

@@ -30,9 +30,6 @@
 #include "utils/snapmgr.h"
 #include "miscadmin.h"
 
-/* Raise a warning if imported snapshot_csn exceeds ours by this value. */
-#define SNAP_DESYNC_COMPLAIN (1*NSECS_PER_SEC) /* 1 second */
-
 TransactionId 	 xmin_for_csn = InvalidTransactionId;
 
 /*
@@ -81,35 +78,6 @@ CSNSnapshotShmemInit()
 		csnState->last_csn_log_wal = 0;
 		SpinLockInit(&csnState->lock);
 	}
-}
-
-/*
- * GetLastAssignedCSN
- *
- * Return last assigned SnapshotCSN which is actually the last assigned LSN. 
- * If the CSN record has not been persisted, call WriteAssignCSNXlogRec().  
- */
-SnapshotCSN
-GetLastAssignedCSN(bool locked)
-{
-	SnapshotCSN	csn;
-
-	Assert(get_csnlog_status());
-	csn = (SnapshotCSN) GetFlushRecPtr(NULL);
-
-	/* TODO: change to atomics? */
-	if (!locked)
-		SpinLockAcquire(&csnState->lock);
-
-	if (csn > csnState->last_max_csn)
-		csnState->last_max_csn = csn;
-
-	WriteAssignCSNXlogRec(csn);
-
-	if (!locked)
-		SpinLockRelease(&csnState->lock);
-
-	return csn;
 }
 
 /*
@@ -167,7 +135,7 @@ TransactionIdGetXidCSN(int region, TransactionId xid)
 
 	/*
 	 * If we just switch a xid-snapsot to a csn_snapshot, we should handle a start
-	 * xid for csn basse check. Just in case we have prepared transaction which
+	 * xid for csn base check. Just in case we have prepared transaction which
 	 * hold the TransactionXmin but without CSN.
 	 */
 	if (InvalidTransactionId == xmin_for_csn)
@@ -182,7 +150,7 @@ TransactionIdGetXidCSN(int region, TransactionId xid)
 	}
 
 	if (FrozenTransactionId != xmin_for_csn ||
-					TransactionIdPrecedes(xmin_for_csn, TransactionXmin))
+		TransactionIdPrecedes(xmin_for_csn, TransactionXmin))
 	{
 		xmin_for_csn = TransactionXmin;
 	}
@@ -200,7 +168,7 @@ TransactionIdGetXidCSN(int region, TransactionId xid)
 	xid_csn = CSNLogGetCSNByXid(region, xid);
 
 	/*
-	 * If we faced InDoubt state then transaction is beeing committed and we
+	 * If we faced InDoubt state then transaction is being committed and we
 	 * should wait until XidCSN will be assigned so that visibility check
 	 * could decide whether tuple is in snapshot. See also comments in
 	 * CSNSnapshotPrecommit().
@@ -209,58 +177,15 @@ TransactionIdGetXidCSN(int region, TransactionId xid)
 	{
 		XactLockTableWait(xid, NULL, NULL, XLTW_None);
 		xid_csn = CSNLogGetCSNByXid(region, xid);
-		Assert(XidCSNIsNormal(xid_csn) ||
-				XidCSNIsAborted(xid_csn));
+		Assert(XidCSNIsNormal(xid_csn) || XidCSNIsAborted(xid_csn));
 	}
 
 	Assert(XidCSNIsNormal(xid_csn) ||
-			XidCSNIsInProgress(xid_csn) ||
-			XidCSNIsAborted(xid_csn));
+		   XidCSNIsInProgress(xid_csn) ||
+		   XidCSNIsAborted(xid_csn));
 
 	return xid_csn;
 }
-
-/*
- * XidInvisibleInCSNSnapshot
- *
- * Version of XidInMVCCSnapshot for transactions. For non-imported
- * csn snapshots this should give same results as XidInLocalMVCCSnapshot
- * (except that aborts will be shown as invisible without going to clog) and to
- * ensure such behaviour XidInMVCCSnapshot is coated with asserts that checks
- * identicalness of XidInvisibleInCSNSnapshot/XidInLocalMVCCSnapshot in
- * case of ordinary snapshot.
- */
-// bool
-// XidInvisibleInCSNSnapshot(TransactionId xid, Snapshot snapshot)
-// {
-// 	XidCSN csn;
-
-// 	Assert(get_csnlog_status());
-
-// 	csn = TransactionIdGetXidCSN(xid);
-
-// 	if (XidCSNIsNormal(csn))
-// 	{
-// 		if (csn < snapshot->snapshot_csn)
-// 			return false;
-// 		else
-// 			return true;
-// 	}
-// 	else if (XidCSNIsFrozen(csn))
-// 	{
-// 		/* It is bootstrap or frozen transaction */
-// 		return false;
-// 	}
-// 	else
-// 	{
-// 		/* It is aborted or in-progress */
-// 		Assert(XidCSNIsAborted(csn) || XidCSNIsInProgress(csn));
-// 		if (XidCSNIsAborted(csn))
-// 			Assert(TransactionIdDidAbort(xid));
-// 		return true;
-// 	}
-// }
-
 
 /*****************************************************************************
  * Functions to handle transactions commit.
@@ -278,7 +203,6 @@ TransactionIdGetXidCSN(int region, TransactionId xid)
  * CSNSnapshotAbort is slightly different comparing to commit because abort
  * can skip InDoubt phase and can be called for transaction subtree.
  *****************************************************************************/
-
 
 /*
  * CSNSnapshotAbort

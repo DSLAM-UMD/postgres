@@ -461,7 +461,7 @@ static void RemoveTargetIfNoLongerUsed(PREDICATELOCKTARGET *target,
 									   uint32 targettaghash);
 static void DeleteChildTargetLocks(const PREDICATELOCKTARGETTAG *newtargettag);
 static int	MaxPredicateChildLocks(const PREDICATELOCKTARGETTAG *tag);
-static bool CheckAndPromotePredicateLockRequest(const PREDICATELOCKTARGETTAG *reqtag);
+static bool CheckAndPromotePredicateLockRequest(int region, const PREDICATELOCKTARGETTAG *reqtag);
 static void DecrementParentLocks(const PREDICATELOCKTARGETTAG *targettag);
 static void CreatePredicateLock(const PREDICATELOCKTARGETTAG *targettag,
 								uint32 targettaghash,
@@ -470,7 +470,7 @@ static void DeleteLockTarget(PREDICATELOCKTARGET *target, uint32 targettaghash);
 static bool TransferPredicateLocksToNewTarget(PREDICATELOCKTARGETTAG oldtargettag,
 											  PREDICATELOCKTARGETTAG newtargettag,
 											  bool removeOld);
-static void PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag);
+static void PredicateLockAcquire(int region, const PREDICATELOCKTARGETTAG *targettag);
 static void DropAllPredicateLocksFromTable(Relation relation,
 										   bool transfer);
 static void SetNewSxactGlobalXmin(void);
@@ -2320,7 +2320,7 @@ MaxPredicateChildLocks(const PREDICATELOCKTARGETTAG *tag)
  * Returns true if a parent lock was acquired and false otherwise.
  */
 static bool
-CheckAndPromotePredicateLockRequest(const PREDICATELOCKTARGETTAG *reqtag)
+CheckAndPromotePredicateLockRequest(int region, const PREDICATELOCKTARGETTAG *reqtag)
 {
 	PREDICATELOCKTARGETTAG targettag,
 				nexttag,
@@ -2366,7 +2366,7 @@ CheckAndPromotePredicateLockRequest(const PREDICATELOCKTARGETTAG *reqtag)
 	if (promote)
 	{
 		/* acquire coarsest ancestor eligible for promotion */
-		PredicateLockAcquire(&promotiontag);
+		PredicateLockAcquire(region, &promotiontag);
 		return true;
 	}
 	else
@@ -2512,7 +2512,7 @@ CreatePredicateLock(const PREDICATELOCKTARGETTAG *targettag,
  * any finer-grained locks covered by the new one.
  */
 static void
-PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag)
+PredicateLockAcquire(int region, const PREDICATELOCKTARGETTAG *targettag)
 {
 	uint32		targettaghash;
 	bool		found;
@@ -2545,7 +2545,7 @@ PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag)
 	 * coarser granularity, or whether there are finer-granularity locks to
 	 * clean up.
 	 */
-	if (CheckAndPromotePredicateLockRequest(targettag))
+	if (CheckAndPromotePredicateLockRequest(region, targettag))
 	{
 		/*
 		 * Lock request was promoted to a coarser-granularity lock, and that
@@ -2561,6 +2561,8 @@ PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag)
 	}
 
 	/*
+	 * Remotexact
+	 *
 	 * Collect the read set of the current transaction.
 	 *
 	 * TODO (ctring): Make use of the promoting mechanism above to reduce the
@@ -2569,18 +2571,21 @@ PredicateLockAcquire(const PREDICATELOCKTARGETTAG *targettag)
 	switch (GET_PREDICATELOCKTARGETTAG_TYPE(*targettag))
 	{
 		case PREDLOCKTAG_RELATION:
-			CollectRelation(GET_PREDICATELOCKTARGETTAG_DB(*targettag),
+			CollectRelation(region,
+							GET_PREDICATELOCKTARGETTAG_DB(*targettag),
 							GET_PREDICATELOCKTARGETTAG_RELATION(*targettag));
 			break;
 
 		case PREDLOCKTAG_PAGE:
-			CollectPage(GET_PREDICATELOCKTARGETTAG_DB(*targettag),
+			CollectPage(region,
+						GET_PREDICATELOCKTARGETTAG_DB(*targettag),
 						GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
 						GET_PREDICATELOCKTARGETTAG_PAGE(*targettag));
 			break;
 
 		case PREDLOCKTAG_TUPLE:
-			CollectTuple(GET_PREDICATELOCKTARGETTAG_DB(*targettag),
+			CollectTuple(region,
+						 GET_PREDICATELOCKTARGETTAG_DB(*targettag),
 						 GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
 						 GET_PREDICATELOCKTARGETTAG_PAGE(*targettag),
 						 GET_PREDICATELOCKTARGETTAG_OFFSET(*targettag));
@@ -2608,8 +2613,7 @@ PredicateLockRelation(Relation relation, Snapshot snapshot)
 	SET_PREDICATELOCKTARGETTAG_RELATION(tag,
 										relation->rd_node.dbNode,
 										relation->rd_id);
-	PredicateLockAcquire(&tag);
-	CollectRegion(relation);
+	PredicateLockAcquire(RelationGetRegion(relation), &tag);
 }
 
 /*
@@ -2633,8 +2637,7 @@ PredicateLockPage(Relation relation, BlockNumber blkno, Snapshot snapshot)
 									relation->rd_node.dbNode,
 									relation->rd_id,
 									blkno);
-	PredicateLockAcquire(&tag);
-	CollectRegion(relation);
+	PredicateLockAcquire(RelationGetRegion(relation), &tag);
 }
 
 /*
@@ -2680,8 +2683,7 @@ PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
 									 relation->rd_id,
 									 ItemPointerGetBlockNumber(tid),
 									 ItemPointerGetOffsetNumber(tid));
-	PredicateLockAcquire(&tag);
-	CollectRegion(relation);
+	PredicateLockAcquire(RelationGetRegion(relation), &tag);
 }
 
 

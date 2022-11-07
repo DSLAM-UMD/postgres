@@ -833,10 +833,11 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
  * token is also returned in snapshot->speculativeToken.
  */
 static bool
-HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
+HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 						Buffer buffer)
 {
 	HeapTupleHeader tuple = htup->t_data;
+	bool is_remote = RegionIsRemote(region);
 
 	Assert(ItemPointerIsValid(&htup->t_self));
 	Assert(htup->t_tableOid != InvalidOid);
@@ -849,108 +850,133 @@ HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
 		if (HeapTupleHeaderXminInvalid(tuple))
 			return false;
 
-		/* Used by pre-9.0 binary upgrades */
-		if (tuple->t_infomask & HEAP_MOVED_OFF)
+		/*
+		 * Remotexact
+		 * Use the same code path as normal postgres if xmin is local
+		 * (implying xmax is also local)
+		 */
+		if (!is_remote || HeapTupleHeaderIsXminLocal(tuple))
 		{
-			TransactionId xvac = HeapTupleHeaderGetXvac(tuple);
-
-			if (TransactionIdIsCurrentTransactionId(xvac))
-				return false;
-			if (!TransactionIdIsInProgress(xvac))
+			/* Used by pre-9.0 binary upgrades */
+			if (tuple->t_infomask & HEAP_MOVED_OFF)
 			{
-				if (TransactionIdDidCommit(xvac))
+				TransactionId xvac = HeapTupleHeaderGetXvac(tuple);
+
+				if (TransactionIdIsCurrentTransactionId(xvac))
+					return false;
+				if (!TransactionIdIsInProgress(xvac))
 				{
-					SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
-								InvalidTransactionId);
-					return false;
-				}
-				SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
-							InvalidTransactionId);
-			}
-		}
-		/* Used by pre-9.0 binary upgrades */
-		else if (tuple->t_infomask & HEAP_MOVED_IN)
-		{
-			TransactionId xvac = HeapTupleHeaderGetXvac(tuple);
-
-			if (!TransactionIdIsCurrentTransactionId(xvac))
-			{
-				if (TransactionIdIsInProgress(xvac))
-					return false;
-				if (TransactionIdDidCommit(xvac))
+					if (TransactionIdDidCommit(xvac))
+					{
+						SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
+									InvalidTransactionId);
+						return false;
+					}
 					SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
 								InvalidTransactionId);
-				else
-				{
-					SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
-								InvalidTransactionId);
-					return false;
 				}
 			}
-		}
-		else if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tuple)))
-		{
-			if (tuple->t_infomask & HEAP_XMAX_INVALID)	/* xid invalid */
-				return true;
-
-			if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))	/* not deleter */
-				return true;
-
-			if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
+			/* Used by pre-9.0 binary upgrades */
+			else if (tuple->t_infomask & HEAP_MOVED_IN)
 			{
-				TransactionId xmax;
+				TransactionId xvac = HeapTupleHeaderGetXvac(tuple);
 
-				xmax = HeapTupleGetUpdateXid(tuple);
-
-				/* not LOCKED_ONLY, so it has to have an xmax */
-				Assert(TransactionIdIsValid(xmax));
-
-				/* updating subtransaction must have aborted */
-				if (!TransactionIdIsCurrentTransactionId(xmax))
+				if (!TransactionIdIsCurrentTransactionId(xvac))
+				{
+					if (TransactionIdIsInProgress(xvac))
+						return false;
+					if (TransactionIdDidCommit(xvac))
+						SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
+									InvalidTransactionId);
+					else
+					{
+						SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
+									InvalidTransactionId);
+						return false;
+					}
+				}
+			}
+			else if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tuple)))
+			{
+				if (tuple->t_infomask & HEAP_XMAX_INVALID)	/* xid invalid */
 					return true;
-				else
-					return false;
-			}
 
-			if (!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))
+				if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))	/* not deleter */
+					return true;
+
+				if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
+				{
+					TransactionId xmax;
+
+					xmax = HeapTupleGetUpdateXid(tuple);
+
+					/* not LOCKED_ONLY, so it has to have an xmax */
+					Assert(TransactionIdIsValid(xmax));
+
+					/* updating subtransaction must have aborted */
+					if (!TransactionIdIsCurrentTransactionId(xmax))
+						return true;
+					else
+						return false;
+				}
+
+				if (!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))
+				{
+					/* deleting subtransaction must have aborted */
+					SetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
+								InvalidTransactionId);
+					return true;
+				}
+
+				return false;
+			}
+			else if (TransactionIdIsInProgress(HeapTupleHeaderGetRawXmin(tuple)))
 			{
-				/* deleting subtransaction must have aborted */
-				SetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
+				/*
+				* Return the speculative token to caller.  Caller can worry about
+				* xmax, since it requires a conclusively locked row version, and
+				* a concurrent update to this tuple is a conflict of its
+				* purposes.
+				*/
+				if (HeapTupleHeaderIsSpeculative(tuple))
+				{
+					snapshot->speculativeToken =
+						HeapTupleHeaderGetSpeculativeToken(tuple);
+
+					Assert(snapshot->speculativeToken != 0);
+				}
+
+				snapshot->xmin = HeapTupleHeaderGetRawXmin(tuple);
+				/* XXX shouldn't we fall through to look at xmax? */
+				return true;		/* in insertion by other */
+			}
+			else if (TransactionIdDidCommit(HeapTupleHeaderGetRawXmin(tuple)))
+				SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
+							HeapTupleHeaderGetRawXmin(tuple));
+			else
+			{
+				/* it must have aborted or crashed */
+				SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
 							InvalidTransactionId);
-				return true;
+				return false;
 			}
-
-			return false;
 		}
-		else if (TransactionIdIsInProgress(HeapTupleHeaderGetRawXmin(tuple)))
+		/*
+		 * Use the CSN log if xmin is remote. In-progress transactions (in a remote region) ar
+		 * ignored when scanning a remote relation, so we don't check for them here. 
+		 */
+		else 
 		{
-			/*
-			 * Return the speculative token to caller.  Caller can worry about
-			 * xmax, since it requires a conclusively locked row version, and
-			 * a concurrent update to this tuple is a conflict of its
-			 * purposes.
-			 */
-			if (HeapTupleHeaderIsSpeculative(tuple))
+			if (RemoteTransactionIdDidCommit(region, HeapTupleHeaderGetRawXmin(tuple)))
+				SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
+							HeapTupleHeaderGetRawXmin(tuple));
+			else
 			{
-				snapshot->speculativeToken =
-					HeapTupleHeaderGetSpeculativeToken(tuple);
-
-				Assert(snapshot->speculativeToken != 0);
+				/* it must have aborted or crashed */
+				SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
+							InvalidTransactionId);
+				return false;
 			}
-
-			snapshot->xmin = HeapTupleHeaderGetRawXmin(tuple);
-			/* XXX shouldn't we fall through to look at xmax? */
-			return true;		/* in insertion by other */
-		}
-		else if (TransactionIdDidCommit(HeapTupleHeaderGetRawXmin(tuple)))
-			SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
-						HeapTupleHeaderGetRawXmin(tuple));
-		else
-		{
-			/* it must have aborted or crashed */
-			SetHintBits(tuple, buffer, HEAP_XMIN_INVALID,
-						InvalidTransactionId);
-			return false;
 		}
 	}
 
@@ -973,6 +999,11 @@ HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
 		if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
 			return true;
 
+		// TODO (ctring): we disallow multixact for now, need multixact log
+		//				  from other regions to enable this.
+		if (is_remote)
+			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
+
 		xmax = HeapTupleGetUpdateXid(tuple);
 
 		/* not LOCKED_ONLY, so it has to have an xmax */
@@ -991,21 +1022,39 @@ HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
 		return true;
 	}
 
-	if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))
+	/*
+	 * Remotexact
+	 * Use the same code path as normal postgres if xmax is local.
+	 */
+	if (!is_remote || HeapTupleHeaderIsXmaxLocal(tuple))
 	{
-		if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
+		if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))
+		{
+			if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
+				return true;
+			return false;
+		}
+
+		if (TransactionIdIsInProgress(HeapTupleHeaderGetRawXmax(tuple)))
+		{
+			if (!HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
+				snapshot->xmax = HeapTupleHeaderGetRawXmax(tuple);
 			return true;
-		return false;
-	}
+		}
 
-	if (TransactionIdIsInProgress(HeapTupleHeaderGetRawXmax(tuple)))
-	{
-		if (!HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
-			snapshot->xmax = HeapTupleHeaderGetRawXmax(tuple);
-		return true;
+		if (!TransactionIdDidCommit(HeapTupleHeaderGetRawXmax(tuple)))
+		{
+			/* it must have aborted or crashed */
+			SetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
+						InvalidTransactionId);
+			return true;
+		}
 	}
-
-	if (!TransactionIdDidCommit(HeapTupleHeaderGetRawXmax(tuple)))
+	/*
+	 * Use the CSN log if xmax is remote. In-progress transactions (in a remote region)
+	 * are ignored when scanning a remote relation, so we don't check for them here. 
+	 */
+	else if (!RemoteTransactionIdDidCommit(region, HeapTupleHeaderGetRawXmax(tuple)))
 	{
 		/* it must have aborted or crashed */
 		SetHintBits(tuple, buffer, HEAP_XMAX_INVALID,
@@ -1920,7 +1969,7 @@ HeapTupleSatisfiesVisibility(int region, HeapTuple tup, Snapshot snapshot, Buffe
 			return HeapTupleSatisfiesToast(tup, snapshot, buffer);
 			break;
 		case SNAPSHOT_DIRTY:
-			return HeapTupleSatisfiesDirty(tup, snapshot, buffer);
+			return HeapTupleSatisfiesDirty(region, tup, snapshot, buffer);
 			break;
 		case SNAPSHOT_HISTORIC_MVCC:
 			return HeapTupleSatisfiesHistoricMVCC(tup, snapshot, buffer);

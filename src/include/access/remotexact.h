@@ -39,8 +39,11 @@ extern int current_region;
 
 typedef XLogRecPtr (*get_region_lsn_hook_type) (int region);
 extern PGDLLIMPORT get_region_lsn_hook_type get_region_lsn_hook;
+typedef XLogRecPtr *(*get_all_region_lsns_hook_type) (void);
+extern PGDLLIMPORT get_all_region_lsns_hook_type get_all_region_lsns_hook;
 
 #define GetRegionLsn(r) (get_region_lsn_hook == NULL ? InvalidXLogRecPtr : (*get_region_lsn_hook)(r))
+#define GetAllRegionLsns() (get_all_region_lsns_hook == NULL ? NULL : (*get_all_region_lsns_hook)())
 
 typedef struct
 {

@@ -15,6 +15,7 @@
 int			current_region;
 
 get_region_lsn_hook_type get_region_lsn_hook = NULL;
+get_all_region_lsns_hook_type get_all_region_lsns_hook = NULL;
 
 bool		is_surrogate = false;
 

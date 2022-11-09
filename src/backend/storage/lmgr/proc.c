@@ -1061,6 +1061,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 	bool		early_deadlock = false;
 	bool		allow_autovacuum_cancel = true;
 	bool		logged_recovery_conflict = false;
+	bool 		myProc_is_remotexact = MyProc->isRemoteXact;
 	ProcWaitStatus myWaitStatus;
 	PGPROC	   *leader = MyProc->lockGroupLeader;
 	int			i;
@@ -1141,6 +1142,17 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 					 * can't do that until we are *on* the wait queue. So, set
 					 * a flag to check below, and break out of loop.  Also,
 					 * record deadlock info for later message.
+					 */
+					RememberSimpleDeadLock(MyProc, lockmode, lock, proc);
+					early_deadlock = true;
+					break;
+				} else if (myProc_is_remotexact && proc->isRemoteXact) {
+					/* 
+					 * Remotexact 
+					 * The MyProc is executing a remotexact and waiting for
+					 * another process that is also executing a remotexact. So
+					 * set the early_deadlock flag to true and break out of the
+					 * loop. Also record the deadlock info for later message. 
 					 */
 					RememberSimpleDeadLock(MyProc, lockmode, lock, proc);
 					early_deadlock = true;

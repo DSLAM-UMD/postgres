@@ -536,7 +536,7 @@ typedef struct ViewOptions
 		if ((relation)->rd_smgr == NULL) \
 			smgrsetowner(&((relation)->rd_smgr), \
 						 smgropen((relation)->rd_node, (relation)->rd_backend, \
-						 		  (relation)->rd_rel->relpersistence, (relation)->rd_rel->relregion)); \
+						 		  (relation)->rd_rel->relpersistence, RelationGetRegion(relation))); \
 	} while (0)
 
 /*

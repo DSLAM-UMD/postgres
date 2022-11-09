@@ -15,18 +15,19 @@
 #include "storage/itemptr.h"
 
 #define UNKNOWN_REGION -1
-#define GLOBAL_REGION 0
-#define MAX_REGIONS 64 // 0 reserved for GLOBAL_REGION and 1..63 for user regions.
+#define CURRENT_REGION_ALIAS 0
+#define MAX_REGIONS 64	// 0 reserved for CURRENT_REGION_ALIAS and 1..63 for actual regions.
 
-#define IsMultiRegion() (current_region != GLOBAL_REGION)
-#define RegionIsValid(r) (r != UNKNOWN_REGION)
-#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region && r != GLOBAL_REGION)
+#define IsMultiRegion() (current_region != CURRENT_REGION_ALIAS)
+#define RegionIsValid(r) (r > CURRENT_REGION_ALIAS)
+#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region)
+#define ResolveRegion(region) (region == CURRENT_REGION_ALIAS ? current_region : region)
 
 /*
  * RelationGetRegion
  *		Fetch relation's region.
  */
-#define RelationGetRegion(relation) ((relation)->rd_rel->relregion)
+#define RelationGetRegion(relation) (ResolveRegion((relation)->rd_rel->relregion))
 
 /*
  * RelationIsRemote

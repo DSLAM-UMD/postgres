@@ -3649,7 +3649,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&current_region,
-		GLOBAL_REGION, 0, INT_MAX,
+		CURRENT_REGION_ALIAS, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 

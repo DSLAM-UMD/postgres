@@ -73,17 +73,18 @@ typedef struct
 	LOCKTAG		locktag;		/* ID of awaited lock object */
 	LOCKMODE	lockmode;		/* type of lock we're waiting for */
 	int			pid;			/* PID of blocked backend */
+	bool 		is_remotexact;  /* PID is executing remotexact */
 } DEADLOCK_INFO;
 
-
-static bool DeadLockCheckRecurse(PGPROC *proc);
-static int	TestConfiguration(PGPROC *startProc);
-static bool FindLockCycle(PGPROC *checkProc,
+static bool DeadLockCheckRecurse(PGPROC *proc, bool remote_start_proc);
+static int	TestConfiguration(PGPROC *startProc, bool remote_start_proc);
+static bool FindLockCycle(PGPROC *checkProc, bool remote_start_proc,
 						  EDGE *softEdges, int *nSoftEdges);
-static bool FindLockCycleRecurse(PGPROC *checkProc, int depth,
-								 EDGE *softEdges, int *nSoftEdges);
+static bool FindLockCycleRecurse(PGPROC *checkProc, bool remote_start_proc,
+								 int depth, EDGE *softEdges, int *nSoftEdges);
 static bool FindLockCycleRecurseMember(PGPROC *checkProc,
 									   PGPROC *checkProcLeader,
+									   bool remote_start_proc,
 									   int depth, EDGE *softEdges, int *nSoftEdges);
 static bool ExpandConstraints(EDGE *constraints, int nConstraints);
 static bool TopoSort(LOCK *lock, EDGE *constraints, int nConstraints,
@@ -218,6 +219,15 @@ DeadLockCheck(PGPROC *proc)
 {
 	int			i,
 				j;
+	/* 
+	 * Remotexact
+	 * Intialize the proc_is_remote flag to check for multi-region deadlocks.
+	 * It suffices to take a copy of the flag at the start of the deadlock
+	 * check because we know that this transaction may not access any other
+	 * data while its waiting for the lock. Thus we are certain it will not
+	 * become remote while DeadLockCheck is called. 
+	 */
+	bool proc_is_remote = proc->isRemoteXact;
 
 	/* Initialize to "no constraints" */
 	nCurConstraints = 0;
@@ -228,7 +238,7 @@ DeadLockCheck(PGPROC *proc)
 	blocking_autovacuum_proc = NULL;
 
 	/* Search for deadlocks and possible fixes */
-	if (DeadLockCheckRecurse(proc))
+	if (DeadLockCheckRecurse(proc, proc_is_remote))
 	{
 		/*
 		 * Call FindLockCycle one more time, to record the correct
@@ -239,8 +249,9 @@ DeadLockCheck(PGPROC *proc)
 		TRACE_POSTGRESQL_DEADLOCK_FOUND();
 
 		nWaitOrders = 0;
-		if (!FindLockCycle(proc, possibleConstraints, &nSoftEdges))
-			elog(FATAL, "deadlock seems to have disappeared");
+                if (!FindLockCycle(proc, proc_is_remote, possibleConstraints,
+                                   &nSoftEdges))
+                  elog(FATAL, "deadlock seems to have disappeared");
 
 		return DS_HARD_DEADLOCK;	/* cannot find a non-deadlocked state */
 	}
@@ -312,14 +323,14 @@ GetBlockingAutoVacuumPgproc(void)
  * rearrangements of lock wait queues (if any).
  */
 static bool
-DeadLockCheckRecurse(PGPROC *proc)
+DeadLockCheckRecurse(PGPROC *proc, bool remote_start_proc)
 {
 	int			nEdges;
 	int			oldPossibleConstraints;
 	bool		savedList;
 	int			i;
 
-	nEdges = TestConfiguration(proc);
+	nEdges = TestConfiguration(proc, remote_start_proc);
 	if (nEdges < 0)
 		return true;			/* hard deadlock --- no solution */
 	if (nEdges == 0)
@@ -347,13 +358,13 @@ DeadLockCheckRecurse(PGPROC *proc)
 		if (!savedList && i > 0)
 		{
 			/* Regenerate the list of possible added constraints */
-			if (nEdges != TestConfiguration(proc))
+			if (nEdges != TestConfiguration(proc, remote_start_proc))
 				elog(FATAL, "inconsistent results during deadlock check");
 		}
 		curConstraints[nCurConstraints] =
 			possibleConstraints[oldPossibleConstraints + i];
 		nCurConstraints++;
-		if (!DeadLockCheckRecurse(proc))
+		if (!DeadLockCheckRecurse(proc, remote_start_proc))
 			return false;		/* found a valid solution! */
 		/* give up on that added constraint, try again */
 		nCurConstraints--;
@@ -378,7 +389,7 @@ DeadLockCheckRecurse(PGPROC *proc)
  *--------------------
  */
 static int
-TestConfiguration(PGPROC *startProc)
+TestConfiguration(PGPROC *startProc, bool remote_start_proc)
 {
 	int			softFound = 0;
 	EDGE	   *softEdges = possibleConstraints + nPossibleConstraints;
@@ -405,20 +416,22 @@ TestConfiguration(PGPROC *startProc)
 	 */
 	for (i = 0; i < nCurConstraints; i++)
 	{
-		if (FindLockCycle(curConstraints[i].waiter, softEdges, &nSoftEdges))
+		if (FindLockCycle(curConstraints[i].waiter, remote_start_proc, 
+						  softEdges, &nSoftEdges))
 		{
 			if (nSoftEdges == 0)
 				return -1;		/* hard deadlock detected */
 			softFound = nSoftEdges;
 		}
-		if (FindLockCycle(curConstraints[i].blocker, softEdges, &nSoftEdges))
+    	if (FindLockCycle(curConstraints[i].blocker, remote_start_proc,
+		    			  softEdges, &nSoftEdges))
 		{
 			if (nSoftEdges == 0)
 				return -1;		/* hard deadlock detected */
 			softFound = nSoftEdges;
 		}
 	}
-	if (FindLockCycle(startProc, softEdges, &nSoftEdges))
+	if (FindLockCycle(startProc, remote_start_proc, softEdges, &nSoftEdges))
 	{
 		if (nSoftEdges == 0)
 			return -1;			/* hard deadlock detected */
@@ -439,6 +452,11 @@ TestConfiguration(PGPROC *startProc)
  * deadlockDetails[] with information about the detected cycle; this info
  * is not used by the deadlock algorithm itself, only to print a useful
  * message after failing.
+ * 
+ * Remotexact
+ * If the remote_start_proc is set to true, then we also need to check if
+ * any of the nodes in the path are remote processes. For a remote process,
+ * we abort pesimistically in order to avoid a multi-region deadlock.
  *
  * Since we need to be able to check hypothetical configurations that would
  * exist after wait queue rearrangement, the routine pays attention to the
@@ -447,17 +465,20 @@ TestConfiguration(PGPROC *startProc)
  */
 static bool
 FindLockCycle(PGPROC *checkProc,
+			  bool remote_start_proc,
 			  EDGE *softEdges,	/* output argument */
 			  int *nSoftEdges)	/* output argument */
 {
 	nVisitedProcs = 0;
 	nDeadlockDetails = 0;
 	*nSoftEdges = 0;
-	return FindLockCycleRecurse(checkProc, 0, softEdges, nSoftEdges);
+	return FindLockCycleRecurse(checkProc, remote_start_proc, 0, softEdges,
+								nSoftEdges);
 }
 
 static bool
 FindLockCycleRecurse(PGPROC *checkProc,
+					 bool remote_start_proc,
 					 int depth,
 					 EDGE *softEdges,	/* output argument */
 					 int *nSoftEdges)	/* output argument */
@@ -504,12 +525,29 @@ FindLockCycleRecurse(PGPROC *checkProc,
 	visitedProcs[nVisitedProcs++] = checkProc;
 
 	/*
+	 * Remotexact
+	 * If this process is not the first we are visiting, and we are checking
+	 * for potential deadlocks involving a remotexact proc, then we return true
+	 * the first time we encounter another remotexact in the path.
+	 */
+	if (remote_start_proc && nVisitedProcs > 0) {
+		if (checkProc->isRemoteXact) {
+			// TODO(pooja): Remove this once we have stress tested with multi-region xacts.
+			ereport(LOG,
+					errmsg("Found a potential multi-region deadlock with"
+					"starting proc: %d and chain proc %d.", 
+					visitedProcs[0]->pid, checkProc->pid));
+			return true;
+		}
+	}
+
+	/*
 	 * If the process is waiting, there is an outgoing waits-for edge to each
 	 * process that blocks it.
 	 */
 	if (checkProc->links.next != NULL && checkProc->waitLock != NULL &&
-		FindLockCycleRecurseMember(checkProc, checkProc, depth, softEdges,
-								   nSoftEdges))
+		FindLockCycleRecurseMember(checkProc, checkProc, remote_start_proc,
+								   depth, softEdges, nSoftEdges))
 		return true;
 
 	/*
@@ -525,11 +563,12 @@ FindLockCycleRecurse(PGPROC *checkProc,
 
 		memberProc = dlist_container(PGPROC, lockGroupLink, iter.cur);
 
-		if (memberProc->links.next != NULL && memberProc->waitLock != NULL &&
-			memberProc != checkProc &&
-			FindLockCycleRecurseMember(memberProc, checkProc, depth, softEdges,
-									   nSoftEdges))
-			return true;
+                if (memberProc->links.next != NULL &&
+                    memberProc->waitLock != NULL && memberProc != checkProc &&
+                    FindLockCycleRecurseMember(memberProc, checkProc,
+                                               remote_start_proc, depth,
+                                               softEdges, nSoftEdges))
+                  return true;
 	}
 
 	return false;
@@ -538,6 +577,7 @@ FindLockCycleRecurse(PGPROC *checkProc,
 static bool
 FindLockCycleRecurseMember(PGPROC *checkProc,
 						   PGPROC *checkProcLeader,
+						   bool remote_start_proc,
 						   int depth,
 						   EDGE *softEdges, /* output argument */
 						   int *nSoftEdges) /* output argument */
@@ -592,8 +632,8 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 					(conflictMask & LOCKBIT_ON(lm)))
 				{
 					/* This proc hard-blocks checkProc */
-					if (FindLockCycleRecurse(proc, depth + 1,
-											 softEdges, nSoftEdges))
+					if (FindLockCycleRecurse(proc, remote_start_proc,
+											 depth + 1, softEdges, nSoftEdges))
 					{
 						/* fill deadlockDetails[] */
 						DEADLOCK_INFO *info = &deadlockDetails[depth];
@@ -601,6 +641,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 						info->locktag = lock->tag;
 						info->lockmode = checkProc->waitLockMode;
 						info->pid = checkProc->pid;
+						info->is_remotexact = checkProc->isRemoteXact;
 
 						return true;
 					}
@@ -685,7 +726,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 			if ((LOCKBIT_ON(proc->waitLockMode) & conflictMask) != 0)
 			{
 				/* This proc soft-blocks checkProc */
-				if (FindLockCycleRecurse(proc, depth + 1,
+				if (FindLockCycleRecurse(proc, remote_start_proc, depth + 1,
 										 softEdges, nSoftEdges))
 				{
 					/* fill deadlockDetails[] */
@@ -694,6 +735,8 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 					info->locktag = lock->tag;
 					info->lockmode = checkProc->waitLockMode;
 					info->pid = checkProc->pid;
+					/* Remotexacts don't matter here but store for completeness. */
+					info->is_remotexact = checkProc->isRemoteXact;
 
 					/*
 					 * Add this edge to the list of soft edges in the cycle
@@ -758,7 +801,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 				leader != checkProcLeader)
 			{
 				/* This proc soft-blocks checkProc */
-				if (FindLockCycleRecurse(proc, depth + 1,
+				if (FindLockCycleRecurse(proc, remote_start_proc, depth + 1,
 										 softEdges, nSoftEdges))
 				{
 					/* fill deadlockDetails[] */
@@ -767,6 +810,8 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 					info->locktag = lock->tag;
 					info->lockmode = checkProc->waitLockMode;
 					info->pid = checkProc->pid;
+					/* Remotexacts don't matter here but store for completeness. */
+					info->is_remotexact = checkProc->isRemoteXact;
 
 					/*
 					 * Add this edge to the list of soft edges in the cycle
@@ -1119,12 +1164,13 @@ DeadLockReport(void)
 			appendStringInfoChar(&clientbuf, '\n');
 
 		appendStringInfo(&clientbuf,
-						 _("Process %d waits for %s on %s; blocked by process %d."),
+						 _("Process %d waits for %s on %s; blocked by process %d; is_remote: %s."),
 						 info->pid,
 						 GetLockmodeName(info->locktag.locktag_lockmethodid,
 										 info->lockmode),
 						 locktagbuf.data,
-						 nextpid);
+						 nextpid,
+						 info->is_remotexact ? "true" : "false");
 	}
 
 	/* Duplicate all the above for the server ... */
@@ -1169,9 +1215,11 @@ RememberSimpleDeadLock(PGPROC *proc1,
 	info->locktag = lock->tag;
 	info->lockmode = lockmode;
 	info->pid = proc1->pid;
+	info->is_remotexact = proc1->isRemoteXact;
 	info++;
 	info->locktag = proc2->waitLock->tag;
 	info->lockmode = proc2->waitLockMode;
 	info->pid = proc2->pid;
+	info->is_remotexact = proc2->isRemoteXact;
 	nDeadlockDetails = 2;
 }

@@ -1936,8 +1936,11 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * contents are probably not up-to-date on disk.  (We don't throw a
 	 * warning here; it would just lead to chatter during a database-wide
 	 * VACUUM.)
+	 * 
+	 * Remotexact
+	 * Ignore remote tables because they are read-only
 	 */
-	if (RELATION_IS_OTHER_TEMP(rel))
+	if (RELATION_IS_OTHER_TEMP(rel) || RelationIsRemote(rel))
 	{
 		relation_close(rel, lmode);
 		PopActiveSnapshot();

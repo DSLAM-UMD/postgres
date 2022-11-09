@@ -122,8 +122,8 @@ CATALOG(pg_class,1259,RelationRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(83,Relat
 	/* link to original rel during table rewrite; otherwise 0 */
 	Oid			relrewrite BKI_DEFAULT(0) BKI_LOOKUP_OPT(pg_class);
 
-	/* region that the relation belongs to; 0 means it is in the global region */
-	int32		relregion BKI_DEFAULT(0);
+	/* region that the relation belongs to; 0 means it will be resolved to the current region */
+	int16		relregion BKI_DEFAULT(0);
 
 	/* all Xids < this are frozen in this rel */
 	TransactionId relfrozenxid BKI_DEFAULT(3);	/* FirstNormalTransactionId */

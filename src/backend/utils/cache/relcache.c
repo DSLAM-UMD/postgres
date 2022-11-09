@@ -2020,8 +2020,8 @@ formrdesc(const char *relationName, Oid relationReltype,
 		relation->rd_rel->relhasindex = true;
 	}
 
-	/* It is in the global region */
-	relation->rd_rel->relregion = GLOBAL_REGION;
+	/* Set current region alias so that it is resolved to the current region later */
+	relation->rd_rel->relregion = CURRENT_REGION_ALIAS;
 
 	/*
 	 * add new reldesc to relcache
@@ -3648,7 +3648,7 @@ RelationBuildLocalRelation(const char *relname,
 
 	rel->rd_rel->relam = accessmtd;
 
-	rel->rd_rel->relregion = GLOBAL_REGION;
+	rel->rd_rel->relregion = CURRENT_REGION_ALIAS;
 
 	/*
 	 * RelationInitTableAccessMethod will do syscache lookups, so we mustn't
@@ -3781,7 +3781,7 @@ RelationSetNewRelfilenode(Relation relation, char persistence)
 		 * anyway.
 		 */
 		srel = smgropen(relation->rd_node, relation->rd_backend, persistence,
-						relation->rd_rel->relregion);
+						RelationGetRegion(relation));
 		smgrdounlinkall(&srel, 1, false);
 		smgrclose(srel);
 	}

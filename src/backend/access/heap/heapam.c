@@ -604,9 +604,8 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 	scan->rs_ntuples = ntup;
 }
 
-void heap_only_get_page(HeapScanDesc scan, BlockNumber page) {
-	Buffer		buffer;
-
+void heap_getpageonly(HeapScanDesc scan, BlockNumber page)
+{
 	Assert(page < scan->rs_nblocks);
 
 	/* release previous scan buffer, if any */

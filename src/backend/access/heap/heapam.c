@@ -606,13 +606,6 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 
 void heap_only_get_page(HeapScanDesc scan, BlockNumber page) {
 	Buffer		buffer;
-	Snapshot	snapshot;
-	Page		dp;
-	int			lines;
-	int			ntup;
-	OffsetNumber lineoff;
-	ItemId		lpp;
-	bool		all_visible;
 
 	Assert(page < scan->rs_nblocks);
 

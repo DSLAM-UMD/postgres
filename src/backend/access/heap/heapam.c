@@ -602,6 +602,43 @@ heapgetpage(TableScanDesc sscan, BlockNumber page)
 	scan->rs_ntuples = ntup;
 }
 
+void heap_only_get_page(HeapScanDesc scan, BlockNumber page) {
+	Buffer		buffer;
+	Snapshot	snapshot;
+	Page		dp;
+	int			lines;
+	int			ntup;
+	OffsetNumber lineoff;
+	ItemId		lpp;
+	bool		all_visible;
+
+	Assert(page < scan->rs_nblocks);
+
+	/* release previous scan buffer, if any */
+	if (BufferIsValid(scan->rs_cbuf))
+	{
+		ReleaseBuffer(scan->rs_cbuf);
+		scan->rs_cbuf = InvalidBuffer;
+	}
+
+
+	/*
+	 * Be sure to check for interrupts at least once per page.  Checks at
+	 * higher code levels won't be able to stop a seqscan that encounters many
+	 * pages' worth of consecutive dead tuples.
+	 */
+	CHECK_FOR_INTERRUPTS();
+
+	/* We only fetch the required page and don't prefetch any subsequent pages 
+	 * because the validation requests will not be sequential. 
+	 * Read page using the default strategy.
+	 */
+	scan->rs_cbuf = ReadBufferExtended(scan->rs_base.rs_rd, MAIN_FORKNUM, page,
+									   RBM_NORMAL, scan->rs_strategy);
+	scan->rs_cblock = page;
+	return;
+}
+
 /* ----------------
  *		heapgettup - fetch next heap tuple
  *

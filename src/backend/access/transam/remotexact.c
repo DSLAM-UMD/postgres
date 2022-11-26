@@ -32,21 +32,21 @@ SetRemoteXactHook(const RemoteXactHook *hook)
 }
 
 void
-CollectRelation(int region, Oid dbid, Oid relid)
+CollectRelation(int region, Oid dbid, Oid relid, char relkind)
 {
-	CallHook(collect_relation)(region, dbid, relid);
+	CallHook(collect_relation)(region, dbid, relid, relkind);
 }
 
 void
-CollectPage(int region, Oid dbid, Oid relid, BlockNumber blkno)
+CollectPage(int region, Oid dbid, Oid relid, BlockNumber blkno, char relkind)
 {
-	CallHook(collect_page)(region, dbid, relid, blkno);
+	CallHook(collect_page)(region, dbid, relid, blkno, relkind);
 }
 
 void
-CollectTuple(int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset)
+CollectTuple(int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset, char relkind)
 {
-	CallHook(collect_tuple)(region, dbid, relid, blkno, offset);
+	CallHook(collect_tuple)(region, dbid, relid, blkno, offset, relkind);
 }
 
 void

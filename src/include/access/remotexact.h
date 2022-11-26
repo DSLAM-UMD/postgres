@@ -47,9 +47,9 @@ extern PGDLLIMPORT get_all_region_lsns_hook_type get_all_region_lsns_hook;
 
 typedef struct
 {
-	void		(*collect_relation) (int region, Oid dbid, Oid relid);
-	void		(*collect_page) (int region, Oid dbid, Oid relid, BlockNumber blkno);
-	void		(*collect_tuple) (int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset);
+	void		(*collect_relation) (int region, Oid dbid, Oid relid, char relkind);
+	void		(*collect_page) (int region, Oid dbid, Oid relid, BlockNumber blkno, char relkind);
+	void		(*collect_tuple) (int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset, char relkind);
 	void		(*collect_insert) (Relation relation, HeapTuple newtuple);
 	void		(*collect_update) (Relation relation, HeapTuple oldtuple, HeapTuple newtuple);
 	void		(*collect_delete) (Relation relation, HeapTuple oldtuple);
@@ -58,9 +58,9 @@ typedef struct
 
 extern void SetRemoteXactHook(const RemoteXactHook *hook);
 
-extern void CollectRelation(int region, Oid dbid, Oid relid);
-extern void CollectPage(int region, Oid dbid, Oid relid, BlockNumber blkno);
-extern void CollectTuple(int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset);
+extern void CollectRelation(int region, Oid dbid, Oid relid, char relkind);
+extern void CollectPage(int region, Oid dbid, Oid relid, BlockNumber blkno, char relkind);
+extern void CollectTuple(int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset, char relkind);
 extern void CollectInsert(Relation relation, HeapTuple newtuple);
 extern void CollectUpdate(Relation relation, HeapTuple oldtuple, HeapTuple newtuple);
 extern void CollectDelete(Relation relation, HeapTuple oldtuple);

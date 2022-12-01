@@ -581,10 +581,83 @@ void heap_getpageonly(HeapScanDesc scan, BlockNumber page)
 	 */
 	CHECK_FOR_INTERRUPTS();
 
-	/* We only fetch the required page and don't prefetch any subsequent pages 
-	 * because the validation requests will not be sequential. 
-	 * Read page using the default strategy.
-	 */
+	/* Prefetch up to seqscan_prefetch_buffers blocks ahead */
+	if (enable_seqscan_prefetch && seqscan_prefetch_buffers > 0)
+	{
+		int64	nblocks;
+		int64	rel_scan_start;
+		int64	rel_scan_end; /* blockno of end of scan (mod scan->rs_nblocks) */
+
+		int64	prefetch_start; /* start block of prefetch requests this iteration */
+		int64	prefetch_end; /* end block of prefetch requests this iteration, if applicable */
+		ParallelBlockTableScanWorker pbscanwork = scan->rs_parallelworkerdata;
+
+		Assert(seqscan_prefetch_buffers > 0);
+
+		/*
+		 * Parallel scans look like repeated sequential table scans for
+		 * prefetching; with a scan start at nalloc + ch_remaining - ch_size
+		 */
+		if (pbscanwork != NULL)
+		{
+			rel_scan_start = (BlockNumber) pbscanwork->phsw_nallocated + 1
+							 + pbscanwork->phsw_chunk_remaining
+							 - pbscanwork->phsw_chunk_size;
+			rel_scan_end = Min(pbscanwork->phsw_nallocated + pbscanwork->phsw_chunk_remaining,
+							   scan->rs_nblocks);
+			nblocks = pbscanwork->phsw_nallocated + pbscanwork->phsw_chunk_remaining;
+		}
+		else
+		{
+			rel_scan_start = scan->rs_startblock;
+			rel_scan_end = scan->rs_startblock + scan->rs_nblocks;
+			nblocks = scan->rs_nblocks;
+		}
+
+		Assert(rel_scan_start <= page && page <= rel_scan_end);
+
+		/*
+		 * If this is the first page of this seqscan, initiate prefetch of
+		 * pages page..page + n. On each subsequent call, prefetch the next
+		 * page that we haven't prefetched yet, at page + n.
+		 * If this is the last page of the prefetch,
+		 */
+		if (rel_scan_start != page)
+		{
+			prefetch_start = (page + seqscan_prefetch_buffers - 1);
+
+			prefetch_end = prefetch_start + 1;
+
+			/* If we've wrapped around, add nblocks to get the block number in the [start, end] range */
+			if (page < rel_scan_start)
+				prefetch_start += nblocks;
+		}
+		else
+		{
+			/* first block we're fetching, cannot have wrapped around yet */
+			prefetch_start = page;
+
+			prefetch_end = rel_scan_end;
+		}
+
+		/* do not prefetch if the only page we're trying to prefetch is past the end of our scan window */
+		if (prefetch_start > rel_scan_end)
+			prefetch_end = 0;
+
+		if (prefetch_end > prefetch_start + seqscan_prefetch_buffers)
+			prefetch_end = prefetch_start + seqscan_prefetch_buffers;
+
+		while (prefetch_start < prefetch_end)
+		{
+			BlockNumber blckno = (prefetch_start % nblocks);
+			Assert(blckno < nblocks);
+			Assert(blckno < INT_MAX);
+			PrefetchBuffer(scan->rs_base.rs_rd, MAIN_FORKNUM, blckno);
+			prefetch_start += 1;
+		}
+	}
+
+	/* Read page using the default strategy. */
 	scan->rs_cbuf = ReadBufferExtended(scan->rs_base.rs_rd, MAIN_FORKNUM, page,
 									   RBM_NORMAL, scan->rs_strategy);
 	scan->rs_cblock = page;

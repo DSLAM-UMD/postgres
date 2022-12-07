@@ -314,8 +314,8 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		/*
 		 * Remotexact
 		 * We only writes to disk pages that do not belong to remote relations.
-		 * The remote pages here must belong to a previous transaction due to
-		 * the check above so it is safe to simply discard them.
+		 * If the buffer contains a remote page here, it must belong to a previous
+		 * transaction due to the check above so it is safe to simply discard the page.
 		 */
 		if (!remote_bufHdr->is_remote)
 		{

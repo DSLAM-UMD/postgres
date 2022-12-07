@@ -36,21 +36,6 @@ typedef struct
 {
 	BufferTag	key;			/* Tag of a disk page */
 	int			id;				/* Associated local buffer's index */
-
-	/*
-	 * Remotexact
-	 * 
-	 * When a transaction writes to a remote relation, it may create
-	 * new (temporary) pages, whose LSNs are set to 0. A future transaction
-	 * in the same session will not be able to tell if a page with LSN 0
-	 * was created by itself or by a previous transaction.
-	 * 
-	 * We store the local xid of the transaction that most recently
-	 * accessed a page here. Since only the transaction that creates a
-	 * temporary page will ever access that page, this value can tell
-	 * who created the temporary page.
-	 */
-	TransactionId	lxid; 
 } LocalBufferLookupEnt;
 
 /* Note: this macro only works on local buffers, not shared ones! */
@@ -62,6 +47,30 @@ int			NLocBuffer = 0;		/* until buffers are initialized */
 BufferDesc *LocalBufferDescriptors = NULL;
 Block	   *LocalBufferBlockPointers = NULL;
 int32	   *LocalRefCount = NULL;
+
+/* Remotexact - Information for pages from remote relations */
+typedef struct
+{
+	/*
+	 * When a transaction writes to a remote relation, it may create
+	 * new (temporary) pages, whose LSNs are set to 0. A future transaction
+	 * in the same session will not be able to tell if a page with LSN 0
+	 * was created by itself or by a previous transaction.
+	 * 
+	 * We store the local xid of the transaction that most recently
+	 * accessed a page here. Since only the transaction that creates a
+	 * temporary page will ever access that page, this value can tell
+	 * who created the temporary page.
+	 */
+	TransactionId	lxid;
+	/* This buffer contains a page from a remote relation */
+	bool is_remote;
+} RemoteBufferDesc;
+
+RemoteBufferDesc *LocalBufferRemoteDescriptors = NULL;
+
+#define LocalBufHdrGetRemoteDesc(bufHdr) \
+	&LocalBufferRemoteDescriptors[-((bufHdr)->buf_id + 2)]
 
 static int	nextFreeLocalBuf = 0;
 
@@ -131,10 +140,12 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	BufferTag	newTag;			/* identity of requested block */
 	LocalBufferLookupEnt *hresult;
 	BufferDesc *bufHdr;
+	RemoteBufferDesc *remote_bufHdr;
 	int			b;
 	int			trycounter;
 	bool		found;
 	uint32		buf_state;
+	bool		is_remote = IsMultiRegion() && RegionIsRemote(smgr->smgr_region);
 
 	INIT_BUFFERTAG(newTag, smgr->smgr_rnode.node, forkNum, blockNum);
 
@@ -150,6 +161,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	{
 		b = hresult->id;
 		bufHdr = GetLocalBufferDescriptor(b);
+		remote_bufHdr = LocalBufHdrGetRemoteDesc(bufHdr);
 		Assert(BUFFERTAGS_EQUAL(bufHdr->tag, newTag));
 #ifdef LBDEBUG
 		fprintf(stderr, "LB ALLOC (%u,%d,%d) %d\n",
@@ -179,7 +191,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 			 *	If this buffer is for a remote relation, do additional checking to see
 			 *  if we need to invalidate the content of the buffer.
 			 */
-			if (IsMultiRegion() && RegionIsRemote(smgr->smgr_region))
+			if (is_remote)
 			{
 				XLogRecPtr region_lsn = GetRegionLsn(smgr->smgr_region);
 				Page page = BufferGetPage(BufferDescriptorGetBuffer(bufHdr));
@@ -191,7 +203,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 				 * 		+ it is not dirty AND
 				 * 		+ it has the LSN that we would request 
 				 */
-				bool usable = hresult->lxid == MyProc->lxid || (
+				bool usable = remote_bufHdr->lxid == MyProc->lxid || (
 					!(buf_state & BM_DIRTY) &&
 					page_lsn == region_lsn);
 
@@ -206,14 +218,14 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 										   "page_lsn = %X/%X. region_lsn = %X/%X. my lxid = %d. lxid = %d",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
 										   LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
-										   MyProc->lxid, hresult->lxid));
+										   MyProc->lxid, remote_bufHdr->lxid));
 				}
 				else
 					ereport(DEBUG1, errmsg("Found usable buffer %d for (%d, %d, %d). "
 										   "page_lsn = %X/%X. region_lsn = %X/%X. my lxid = %d. lxid = %d",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
 										   LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
-										   MyProc->lxid, hresult->lxid));
+										   MyProc->lxid, remote_bufHdr->lxid));
 			}	
 		}
 		else
@@ -223,7 +235,8 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 		}
 
 		/* Remotexact - this buffer is ours now */
-		hresult->lxid = MyProc->lxid;
+		remote_bufHdr->lxid = MyProc->lxid;
+		remote_bufHdr->is_remote = is_remote;
 
 		return bufHdr;
 	}
@@ -247,6 +260,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 			nextFreeLocalBuf = 0;
 
 		bufHdr = GetLocalBufferDescriptor(b);
+		remote_bufHdr = LocalBufHdrGetRemoteDesc(bufHdr);
 
 		if (LocalRefCount[b] == 0)
 		{
@@ -257,6 +271,18 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 			}
 
 			buf_state = pg_atomic_read_u32(&bufHdr->state);
+
+			if (buf_state & BM_DIRTY &&
+				remote_bufHdr->is_remote &&
+				remote_bufHdr->lxid == MyProc->lxid)
+			{
+				/*
+				 * Remotexact
+				 * Prevent eviction of buffers that are owned by the current transaction
+				 * and contain dirty remote pages.
+				 */
+				continue;
+			}
 
 			if (BUF_STATE_GET_USAGECOUNT(buf_state) > 0)
 			{
@@ -285,29 +311,38 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	 */
 	if (buf_state & BM_DIRTY)
 	{
-		SMgrRelation oreln;
-		Page		localpage = (char *) LocalBufHdrGetBlock(bufHdr);
+		/*
+		 * Remotexact
+		 * We only writes to disk pages that do not belong to remote relations.
+		 * The remote pages here must belong to a previous transaction due to
+		 * the check above so it is safe to simply discard them.
+		 */
+		if (!remote_bufHdr->is_remote)
+		{
+			SMgrRelation oreln;
+			Page		localpage = (char *) LocalBufHdrGetBlock(bufHdr);
 
-		/* Find smgr relation for buffer */
-		if (am_wal_redo_postgres && MyBackendId == InvalidBackendId)
-			oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_PERMANENT, UNKNOWN_REGION);
-		else
-			oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_TEMP, UNKNOWN_REGION);
+			/* Find smgr relation for buffer */
+			if (am_wal_redo_postgres && MyBackendId == InvalidBackendId)
+				oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_PERMANENT, UNKNOWN_REGION);
+			else
+				oreln = smgropen(bufHdr->tag.rnode, MyBackendId, RELPERSISTENCE_TEMP, UNKNOWN_REGION);
 
-		PageSetChecksumInplace(localpage, bufHdr->tag.blockNum);
+			PageSetChecksumInplace(localpage, bufHdr->tag.blockNum);
 
-		/* And write... */
-		smgrwrite(oreln,
-				  bufHdr->tag.forkNum,
-				  bufHdr->tag.blockNum,
-				  localpage,
-				  false);
+			/* And write... */
+			smgrwrite(oreln,
+					  bufHdr->tag.forkNum,
+					  bufHdr->tag.blockNum,
+					  localpage,
+					  false);
+
+			pgBufferUsage.local_blks_written++;
+		}
 
 		/* Mark not-dirty now in case we error out below */
 		buf_state &= ~BM_DIRTY;
 		pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
-
-		pgBufferUsage.local_blks_written++;
 	}
 
 	/*
@@ -340,7 +375,6 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	if (found)					/* shouldn't happen */
 		elog(ERROR, "local buffer hash table corrupted");
 	hresult->id = b;
-	hresult->lxid = MyProc->lxid;	/* Remotexact - this buffer is ours now */
 
 	/*
 	 * it's all ours now.
@@ -351,6 +385,9 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 	buf_state &= ~BUF_USAGECOUNT_MASK;
 	buf_state += BUF_USAGECOUNT_ONE;
 	pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
+	/* Remotexact */
+	remote_bufHdr->lxid = MyProc->lxid;
+	remote_bufHdr->is_remote = is_remote;
 
 	*foundPtr = false;
 	return bufHdr;
@@ -514,7 +551,10 @@ InitLocalBuffers(void)
 	LocalBufferDescriptors = (BufferDesc *) calloc(nbufs, sizeof(BufferDesc));
 	LocalBufferBlockPointers = (Block *) calloc(nbufs, sizeof(Block));
 	LocalRefCount = (int32 *) calloc(nbufs, sizeof(int32));
-	if (!LocalBufferDescriptors || !LocalBufferBlockPointers || !LocalRefCount)
+	/* Remotexact */
+	LocalBufferRemoteDescriptors = (RemoteBufferDesc *) calloc(nbufs, sizeof(RemoteBufferDesc));
+	if (!LocalBufferDescriptors || !LocalBufferBlockPointers ||
+		!LocalRefCount || !LocalBufferRemoteDescriptors)
 		ereport(FATAL,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
 				 errmsg("out of memory")));
@@ -525,6 +565,7 @@ InitLocalBuffers(void)
 	for (i = 0; i < nbufs; i++)
 	{
 		BufferDesc *buf = GetLocalBufferDescriptor(i);
+		RemoteBufferDesc *rbuf = LocalBufHdrGetRemoteDesc(buf);
 
 		/*
 		 * negative to indicate local buffer. This is tricky: shared buffers
@@ -540,6 +581,10 @@ InitLocalBuffers(void)
 		 * errors on platforms without atomics, if somebody (re-)introduces
 		 * atomic operations for local buffers.
 		 */
+
+		/* Remotexact */
+		rbuf->is_remote = false;
+		rbuf->lxid = InvalidLocalTransactionId;
 	}
 
 	/* Create the lookup hash table */

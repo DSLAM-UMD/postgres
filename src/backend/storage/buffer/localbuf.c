@@ -398,10 +398,11 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
  *	  mark a local buffer dirty
  */
 void
-MarkLocalBufferDirty(Buffer buffer)
+MarkLocalBufferDirty(Buffer buffer, bool hint)
 {
 	int			bufid;
 	BufferDesc *bufHdr;
+	RemoteBufferDesc *remote_bufHdr;
 	uint32		buf_state;
 
 	Assert(BufferIsLocal(buffer));
@@ -415,6 +416,20 @@ MarkLocalBufferDirty(Buffer buffer)
 	Assert(LocalRefCount[bufid] > 0);
 
 	bufHdr = GetLocalBufferDescriptor(bufid);
+	remote_bufHdr = LocalBufHdrGetRemoteDesc(bufHdr);
+
+	/*
+	 * Remotexact
+	 * Since we never write a remote page to disk nor evict a dirty remote page
+	 * out of the local buffer, we need to be frugal about marking a remote page dirty.
+	 * Hence, we don't mark the page as dirty if the modification is only a hint.
+	 */
+	if (remote_bufHdr->is_remote)
+	{
+		Assert(remote_bufHdr->lxid == MyProc->lxid);
+		if (hint)
+			return;		
+	}
 
 	buf_state = pg_atomic_read_u32(&bufHdr->state);
 

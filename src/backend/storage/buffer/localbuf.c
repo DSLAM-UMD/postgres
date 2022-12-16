@@ -398,7 +398,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
  *	  mark a local buffer dirty
  */
 void
-MarkLocalBufferDirty(Buffer buffer, bool hint)
+MarkLocalBufferDirty(Buffer buffer, bool is_wal_change)
 {
 	int			bufid;
 	BufferDesc *bufHdr;
@@ -421,13 +421,14 @@ MarkLocalBufferDirty(Buffer buffer, bool hint)
 	/*
 	 * Remotexact
 	 * Since we never write a remote page to disk nor evict a dirty remote page
-	 * out of the local buffer, we need to be frugal about marking a remote page dirty.
-	 * Hence, we don't mark the page as dirty if the modification is only a hint.
+	 * out of the local buffer, the local buffer may be quickly filled up with the
+	 * remote pages. Therefore, we need to be frugal and avoid marking the page as
+	 * dirty if the modification is non-critical.
 	 */
 	if (remote_bufHdr->is_remote)
 	{
 		Assert(remote_bufHdr->lxid == MyProc->lxid);
-		if (hint)
+		if (!is_wal_change)
 			return;		
 	}
 

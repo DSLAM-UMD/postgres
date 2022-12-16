@@ -1604,7 +1604,7 @@ MarkBufferDirty(Buffer buffer)
 
 	if (BufferIsLocal(buffer))
 	{
-		MarkLocalBufferDirty(buffer, false);
+		MarkLocalBufferDirty(buffer, true);
 		return;
 	}
 
@@ -4047,7 +4047,7 @@ MarkBufferDirtyHint(Buffer buffer, bool buffer_std)
 
 	if (BufferIsLocal(buffer))
 	{
-		MarkLocalBufferDirty(buffer, true);
+		MarkLocalBufferDirty(buffer, false);
 		return;
 	}
 

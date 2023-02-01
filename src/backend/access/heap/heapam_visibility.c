@@ -310,7 +310,7 @@ HeapTupleSatisfiesSelf(int region, HeapTuple htup, Snapshot snapshot, Buffer buf
 		if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
 			return true;
 
-		// TODO (ctring): we disallow multixact for now, need multixact log
+		// TODO(ctring): we disallow multixact for now, need multixact log
 		//				  from other regions to enable this.
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
@@ -690,7 +690,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 	{
 		TransactionId xmax;
 
-		// TODO (ctring): we disallow multixact for now, need multixact log
+		// TODO(ctring): we disallow multixact for now, need multixact log
 		//				  from other regions to enable this.
 		Assert(!is_remote || HeapTupleHeaderIsXmaxLocal(tuple));
 
@@ -999,7 +999,7 @@ HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 		if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
 			return true;
 
-		// TODO (ctring): we disallow multixact for now, need multixact log
+		// TODO(ctring): we disallow multixact for now, need multixact log
 		//				  from other regions to enable this.
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
@@ -1254,7 +1254,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 		/* already checked above */
 		Assert(!HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask));
 
-		// TODO (ctring): we disallow multixact for now, need multixact log
+		// TODO(ctring): we disallow multixact for now, need multixact log
 		//				  from other regions to enable this.
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));

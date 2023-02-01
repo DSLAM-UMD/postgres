@@ -2420,7 +2420,7 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 	/* 
 	 * Remotexact 
 	 * Put into the write set of remotexact. 
-	 * TODO (ctring): speculative inserts are ignored. Need a mechanism to keep
+	 * TODO(ctring): speculative inserts are ignored. Need a mechanism to keep
 	 * 		 track of whether they are finished or canceled.
 	 */
 	if (!(options & HEAP_INSERT_SPECULATIVE) && RelationIsUsedInRemoteXact(relation))

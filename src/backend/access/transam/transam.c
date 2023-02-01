@@ -187,7 +187,7 @@ RemoteTransactionIdDidCommit(int region, TransactionId transactionId)
 {
 	XidCSN csn;
 
-	// TODO (ctring): cache the fetched id like in TransactionLogFetch?
+	// TODO(ctring): cache the fetched id like in TransactionLogFetch?
 	
 	/*
 	 * Also, check to see if the transaction ID is a permanent one.

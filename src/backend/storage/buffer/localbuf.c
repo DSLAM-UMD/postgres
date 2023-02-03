@@ -581,7 +581,7 @@ InitLocalBuffers(void)
 	for (i = 0; i < nbufs; i++)
 	{
 		BufferDesc *buf = GetLocalBufferDescriptor(i);
-		RemoteBufferDesc *rbuf = LocalBufHdrGetRemoteDesc(buf);
+		RemoteBufferDesc *rbuf = &LocalBufferRemoteDescriptors[i]; /* Remotexact */
 
 		/*
 		 * negative to indicate local buffer. This is tricky: shared buffers

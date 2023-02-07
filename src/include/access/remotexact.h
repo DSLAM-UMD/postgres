@@ -20,7 +20,7 @@
 
 #define IsMultiRegion() (current_region != GLOBAL_REGION)
 #define RegionIsValid(r) (r != UNKNOWN_REGION)
-#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region && r != GLOBAL_REGION)
+#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region)
 
 /*
  * RelationGetRegion

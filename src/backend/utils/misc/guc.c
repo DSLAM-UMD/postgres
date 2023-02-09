@@ -2154,6 +2154,14 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"multi_region", PGC_POSTMASTER, UNGROUPED,
+			gettext_noop("Execute the postgres instance in the multi-region setting."),
+		},
+		&multi_region,
+		false,
+		NULL, NULL, NULL,
+	},
 
 	/* End-of-list marker */
 	{

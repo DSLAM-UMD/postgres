@@ -18,9 +18,9 @@
 #define GLOBAL_REGION 0
 #define MAX_REGIONS 64 // 0 reserved for GLOBAL_REGION and 1..63 for user regions.
 
-#define IsMultiRegion() (current_region != GLOBAL_REGION)
+#define IsMultiRegion() (multi_region)
 #define RegionIsValid(r) (r != UNKNOWN_REGION)
-#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region)
+#define RegionIsRemote(r) (RegionIsValid(r) && r != current_region && multi_region)
 
 /*
  * RelationGetRegion

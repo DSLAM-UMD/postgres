@@ -12,7 +12,8 @@
 #include "access/remotexact.h"
 
 /* GUC variable */
-int			current_region;
+bool multi_region;
+int current_region;
 
 get_region_lsn_hook_type get_region_lsn_hook = NULL;
 get_all_region_lsns_hook_type get_all_region_lsns_hook = NULL;

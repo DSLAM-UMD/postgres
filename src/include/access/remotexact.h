@@ -35,6 +35,7 @@
 #define RelationIsRemote(relation) (RegionIsRemote(RelationGetRegion(relation)))
 
 /* GUC variable */
+extern bool multi_region;
 extern int current_region;
 
 typedef XLogRecPtr (*get_region_lsn_hook_type) (int region);

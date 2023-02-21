@@ -215,16 +215,16 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 					*foundPtr = false;
 
 					ereport(DEBUG1, errmsg("Found non-usable buffer %d for (%d, %d, %d). "
-										   "page_lsn = %X/%X. region_lsn = %X/%X. my lxid = %d. lxid = %d",
+										   "dirty = %d. page_lsn = %X/%X. region_lsn = %X/%X. my_lxid = %d. buffer_lxid = %d.",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
-										   LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
+										   buf_state & BM_DIRTY, LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
 										   MyProc->lxid, remote_bufHdr->lxid));
 				}
 				else
 					ereport(DEBUG1, errmsg("Found usable buffer %d for (%d, %d, %d). "
-										   "page_lsn = %X/%X. region_lsn = %X/%X. my lxid = %d. lxid = %d",
+										   "dirty = %d. page_lsn = %X/%X. region_lsn = %X/%X. my_lxid = %d. buffer_lxid = %d",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
-										   LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
+										   buf_state & BM_DIRTY, LSN_FORMAT_ARGS(page_lsn), LSN_FORMAT_ARGS(region_lsn),
 										   MyProc->lxid, remote_bufHdr->lxid));
 			}	
 		}

@@ -121,6 +121,13 @@ heap_page_prune_opt(Relation relation, Buffer buffer)
 		return;
 
 	/*
+	 * Remotexact
+	 * Never prune remote relations
+	 */
+	if (RelationIsRemote(relation))
+		return;
+
+	/*
 	 * XXX: Magic to keep old_snapshot_threshold tests appear "working". They
 	 * currently are broken, and discussion of what to do about them is
 	 * ongoing. See

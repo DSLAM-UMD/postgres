@@ -150,7 +150,7 @@ static bool SlruScanDirCbDeleteCutoff(SlruCtl ctl, char *filename,
 static void SlruInternalDeleteSegment(SlruCtl ctl, int segno);
 
 /* Hook for plugins to get control in slru */
-slru_kind_check_hook_type slru_kind_check_hook = NULL;
+slru_is_remote_page_hook_type slru_is_remote_page_hook = NULL;
 slru_page_exists_hook_type slru_page_exists_hook = NULL;
 slru_read_page_hook_type slru_read_page_hook = NULL;
 
@@ -648,10 +648,10 @@ SimpleLruWritePage(SlruCtl ctl, int slotno)
 bool
 SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 {
-	if (slru_kind_check_hook && (*slru_kind_check_hook)(ctl)) {
-		int			segno = pageno / SLRU_PAGES_PER_SEGMENT;
-		int			rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
+	int segno = pageno / SLRU_PAGES_PER_SEGMENT;
+	int	rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
 
+	if (slru_is_remote_page_hook && (*slru_is_remote_page_hook)(ctl, rpageno)) {
 		Assert(slru_page_exists_hook);
 
 		pgstat_count_slru_page_exists(ctl->shared->slru_stats_idx);
@@ -726,11 +726,12 @@ SimpleLruDoesPhysicalPageExistDefault(SlruCtl ctl, int pageno)
 static bool
 SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno, XLogRecPtr min_lsn)
 {
-	if (slru_kind_check_hook && (*slru_kind_check_hook)(ctl))
+	int segno = pageno / SLRU_PAGES_PER_SEGMENT;
+	int	rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
+
+	if (slru_is_remote_page_hook && (*slru_is_remote_page_hook)(ctl, rpageno))
 	{
 		SlruShared	shared = ctl->shared;
-		int			segno = pageno / SLRU_PAGES_PER_SEGMENT;
-		int			rpageno = pageno % SLRU_PAGES_PER_SEGMENT;
 
 		Assert(slru_read_page_hook);
 

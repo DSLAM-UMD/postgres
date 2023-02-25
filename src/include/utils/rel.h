@@ -546,7 +546,7 @@ RelationGetSmgr(Relation rel)
 {
 	if (unlikely(rel->rd_smgr == NULL))
 		smgrsetowner(&(rel->rd_smgr),
-					 smgropen(rel->rd_node, rel->rd_backend, rel->rd_rel->relpersistence));
+					 smgropen(rel->rd_node, rel->rd_backend, rel->rd_rel->relpersistence, rel->rd_rel->relregion));
 	return rel->rd_smgr;
 }
 #endif							/* !FRONTEND */

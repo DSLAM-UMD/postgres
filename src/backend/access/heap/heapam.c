@@ -4593,14 +4593,17 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	bool		have_tuple_lock = false;
 	bool		cleared_all_frozen = false;
 
+	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
+
 	/*
 	 * Remotexact
-	 * Locking is a no-op for remote relations because they are in local buffer
+	 * Locking is a no-op for remote relations because they are in local buffer.
+	 * This check must happen after the assignment of the "buffer" variable above
+	 * so that a correct buffer is returned.
 	 */
 	if (RelationIsRemote(relation))
 		return TM_Ok;
 
-	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 	block = ItemPointerGetBlockNumber(tid);
 
 	/*

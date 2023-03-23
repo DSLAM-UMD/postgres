@@ -3108,7 +3108,6 @@ l1:
 			result = TM_Deleted;
 	}
 
-	// TODO(ctring):  This seems to be related to referential integrity. Investigate more
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
@@ -3128,7 +3127,7 @@ l1:
 		tmfd->ctid = tp.t_data->t_ctid;
 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
 		if (result == TM_SelfModified)
-			tmfd->cmax = HeapTupleHeaderGetCmax(tp.t_data);
+			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), tp.t_data);
 		else
 			tmfd->cmax = InvalidCommandId;
 		UnlockReleaseBuffer(buffer);
@@ -3151,7 +3150,7 @@ l1:
 	CheckForSerializableConflictIn(relation, tid, BufferGetBlockNumber(buffer));
 
 	/* replace cid with a combo CID if necessary */
-	HeapTupleHeaderAdjustCmax(tp.t_data, &cid, &iscombo);
+	HeapTupleHeaderAdjustCmax(RelationIsRemote(relation), tp.t_data, &cid, &iscombo);
 
 	/*
 	 * Compute replica identity tuple before entering the critical section so
@@ -3795,7 +3794,7 @@ l2:
 		tmfd->ctid = oldtup.t_data->t_ctid;
 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(oldtup.t_data);
 		if (result == TM_SelfModified)
-			tmfd->cmax = HeapTupleHeaderGetCmax(oldtup.t_data);
+			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), oldtup.t_data);
 		else
 			tmfd->cmax = InvalidCommandId;
 		UnlockReleaseBuffer(buffer);
@@ -3909,7 +3908,7 @@ l2:
 	 * Replace cid with a combo CID if necessary.  Note that we already put
 	 * the plain cid into the new tuple.
 	 */
-	HeapTupleHeaderAdjustCmax(oldtup.t_data, &cid, &iscombo);
+	HeapTupleHeaderAdjustCmax(RelationIsRemote(relation), oldtup.t_data, &cid, &iscombo);
 
 	/*
 	 * If the toaster needs to be activated, OR if the new tuple will not fit
@@ -5123,7 +5122,7 @@ failed:
 		tmfd->ctid = tuple->t_data->t_ctid;
 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tuple->t_data);
 		if (result == TM_SelfModified)
-			tmfd->cmax = HeapTupleHeaderGetCmax(tuple->t_data);
+			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), tuple->t_data);
 		else
 			tmfd->cmax = InvalidCommandId;
 		goto out_locked;
@@ -8620,6 +8619,7 @@ log_heap_new_cid(Relation relation, HeapTuple tup)
 
 	Assert(ItemPointerIsValid(&tup->t_self));
 	Assert(tup->t_tableOid != InvalidOid);
+	Assert(!RelationIsRemote(relation));
 
 	xlrec.top_xid = GetTopTransactionId();
 	xlrec.target_node = relation->rd_node;
@@ -8633,8 +8633,8 @@ log_heap_new_cid(Relation relation, HeapTuple tup)
 	{
 		Assert(!(hdr->t_infomask & HEAP_XMAX_INVALID));
 		Assert(!HeapTupleHeaderXminInvalid(hdr));
-		xlrec.cmin = HeapTupleHeaderGetCmin(hdr);
-		xlrec.cmax = HeapTupleHeaderGetCmax(hdr);
+		xlrec.cmin = HeapTupleHeaderGetCmin(false, hdr);
+		xlrec.cmax = HeapTupleHeaderGetCmax(false, hdr);
 		xlrec.combocid = HeapTupleHeaderGetRawCommandId(hdr);
 	}
 	/* No combo CID, so only cmin or cmax can be set by this TX */

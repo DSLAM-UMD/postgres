@@ -101,12 +101,14 @@ static CommandId GetRealCmax(CommandId combocid);
  */
 
 CommandId
-HeapTupleHeaderGetCmin(HeapTupleHeader tup)
+HeapTupleHeaderGetCmin(bool is_rel_remote, HeapTupleHeader tup)
 {
 	CommandId	cid = HeapTupleHeaderGetRawCommandId(tup);
 
 	Assert(!(tup->t_infomask & HEAP_MOVED));
-	Assert(TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetXmin(tup)));
+	/* Remotexact */
+	Assert((is_rel_remote && HeapTupleHeaderIsXminLocal(tup)) ||
+		   (!is_rel_remote && TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetXmin(tup))));
 
 	if (tup->t_infomask & HEAP_COMBOCID)
 		return GetRealCmin(cid);
@@ -115,7 +117,7 @@ HeapTupleHeaderGetCmin(HeapTupleHeader tup)
 }
 
 CommandId
-HeapTupleHeaderGetCmax(HeapTupleHeader tup)
+HeapTupleHeaderGetCmax(bool is_rel_remote, HeapTupleHeader tup)
 {
 	CommandId	cid = HeapTupleHeaderGetRawCommandId(tup);
 
@@ -127,8 +129,10 @@ HeapTupleHeaderGetCmax(HeapTupleHeader tup)
 	 * weakens the check, but not using GetCmax() inside one would complicate
 	 * things too much.
 	 */
+	/* Remotexact */
 	Assert(CritSectionCount > 0 ||
-		   TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tup)));
+		   ((is_rel_remote && HeapTupleHeaderIsXmaxLocal(tup)) ||
+		    (!is_rel_remote && TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tup)))));
 
 	if (tup->t_infomask & HEAP_COMBOCID)
 		return GetRealCmax(cid);
@@ -150,7 +154,7 @@ HeapTupleHeaderGetCmax(HeapTupleHeader tup)
  * changes the tuple in shared buffers.
  */
 void
-HeapTupleHeaderAdjustCmax(HeapTupleHeader tup,
+HeapTupleHeaderAdjustCmax(bool is_rel_remote, HeapTupleHeader tup,
 						  CommandId *cmax,
 						  bool *iscombo)
 {
@@ -160,10 +164,12 @@ HeapTupleHeaderAdjustCmax(HeapTupleHeader tup,
 	 * Test for HeapTupleHeaderXminCommitted() first, because it's cheaper
 	 * than a TransactionIdIsCurrentTransactionId call.
 	 */
+	/* Remotexact */
 	if (!HeapTupleHeaderXminCommitted(tup) &&
-		TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tup)))
+		((is_rel_remote && HeapTupleHeaderIsXminLocal(tup)) ||
+		 (!is_rel_remote && TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tup)))))
 	{
-		CommandId	cmin = HeapTupleHeaderGetCmin(tup);
+		CommandId	cmin = HeapTupleHeaderGetCmin(is_rel_remote, tup);
 
 		*cmax = GetComboCommandId(cmin, *cmax);
 		*iscombo = true;

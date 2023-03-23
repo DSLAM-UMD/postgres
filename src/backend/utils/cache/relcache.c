@@ -2302,6 +2302,10 @@ RelationReloadIndexInfo(Relation relation)
 		relation->rd_index->indislive = index->indislive;
 
 		/* Copy xmin too, as that is needed to make sense of indcheckxmin */
+		/*
+		 * Remotexact (xid)
+		 * This is xid-safe because it does not have any side effect
+		 */
 		HeapTupleHeaderSetXmin(relation->rd_indextuple->t_data,
 							   HeapTupleHeaderGetXmin(tuple->t_data));
 

@@ -622,6 +622,9 @@ nocachegetattr(HeapTuple tuple,
  * This is a support routine for the heap_getattr macro.  The macro
  * has already determined that the attnum refers to a system attribute.
  * ----------------
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it does not have any side effect
  */
 Datum
 heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)

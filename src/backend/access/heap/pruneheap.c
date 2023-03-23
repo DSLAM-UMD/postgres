@@ -963,6 +963,11 @@ heap_page_prune_execute(Buffer buffer,
  * Note: The information collected here is valid only as long as the caller
  * holds a pin on the buffer. Once pin is released, a tuple might be pruned
  * and reused by a completely unrelated tuple.
+ * 
+ * Remotexact (xid)
+ * This function is only called during index build via heapam_index_validate_scan
+ * and heapam_index_build_range_scan, both of which do not run on remote relations
+ * so this function is xid-safe.
  */
 void
 heap_get_root_tuples(Page page, OffsetNumber *root_offsets)

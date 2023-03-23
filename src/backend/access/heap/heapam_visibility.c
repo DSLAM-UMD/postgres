@@ -564,7 +564,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 			}
 			else if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tuple)))
 			{
-				if (HeapTupleHeaderGetCmin(tuple) >= curcid)
+				if (HeapTupleHeaderGetCmin(is_remote, tuple) >= curcid)
 					return TM_Invisible;	/* inserted after scan started */
 
 				if (tuple->t_infomask & HEAP_XMAX_INVALID)	/* xid invalid */
@@ -620,7 +620,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 					}
 					else
 					{
-						if (HeapTupleHeaderGetCmax(tuple) >= curcid)
+						if (HeapTupleHeaderGetCmax(is_remote, tuple) >= curcid)
 							return TM_SelfModified; /* updated after scan started */
 						else
 							return TM_Invisible;	/* updated before scan started */
@@ -635,7 +635,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 					return TM_Ok;
 				}
 
-				if (HeapTupleHeaderGetCmax(tuple) >= curcid)
+				if (HeapTupleHeaderGetCmax(is_remote, tuple) >= curcid)
 					return TM_SelfModified; /* updated after scan started */
 				else
 					return TM_Invisible;	/* updated before scan started */
@@ -718,7 +718,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 
 		if (TransactionIdIsCurrentTransactionId(xmax))
 		{
-			if (HeapTupleHeaderGetCmax(tuple) >= curcid)
+			if (HeapTupleHeaderGetCmax(is_remote, tuple) >= curcid)
 				return TM_SelfModified; /* updated after scan started */
 			else
 				return TM_Invisible;	/* updated before scan started */
@@ -767,7 +767,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 		{
 			if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
 				return TM_BeingModified;
-			if (HeapTupleHeaderGetCmax(tuple) >= curcid)
+			if (HeapTupleHeaderGetCmax(is_remote, tuple) >= curcid)
 				return TM_SelfModified; /* updated after scan started */
 			else
 				return TM_Invisible;	/* updated before scan started */
@@ -1161,7 +1161,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 			}
 			else if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmin(tuple)))
 			{
-				if (HeapTupleHeaderGetCmin(tuple) >= snapshot->curcid)
+				if (HeapTupleHeaderGetCmin(is_remote, tuple) >= snapshot->curcid)
 					return false;	/* inserted after scan started */
 
 				if (tuple->t_infomask & HEAP_XMAX_INVALID)	/* xid invalid */
@@ -1182,7 +1182,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 					/* updating subtransaction must have aborted */
 					if (!TransactionIdIsCurrentTransactionId(xmax))
 						return true;
-					else if (HeapTupleHeaderGetCmax(tuple) >= snapshot->curcid)
+					else if (HeapTupleHeaderGetCmax(is_remote, tuple) >= snapshot->curcid)
 						return true;	/* updated after scan started */
 					else
 						return false;	/* updated before scan started */
@@ -1196,7 +1196,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 					return true;
 				}
 
-				if (HeapTupleHeaderGetCmax(tuple) >= snapshot->curcid)
+				if (HeapTupleHeaderGetCmax(is_remote, tuple) >= snapshot->curcid)
 					return true;	/* deleted after scan started */
 				else
 					return false;	/* deleted before scan started */
@@ -1266,7 +1266,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 
 		if (TransactionIdIsCurrentTransactionId(xmax))
 		{
-			if (HeapTupleHeaderGetCmax(tuple) >= snapshot->curcid)
+			if (HeapTupleHeaderGetCmax(is_remote, tuple) >= snapshot->curcid)
 				return true;	/* deleted after scan started */
 			else
 				return false;	/* deleted before scan started */
@@ -1289,7 +1289,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 		{
 			if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetRawXmax(tuple)))
 			{
-				if (HeapTupleHeaderGetCmax(tuple) >= snapshot->curcid)
+				if (HeapTupleHeaderGetCmax(is_remote, tuple) >= snapshot->curcid)
 					return true;	/* deleted after scan started */
 				else
 					return false;	/* deleted before scan started */

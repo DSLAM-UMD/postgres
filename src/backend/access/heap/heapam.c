@@ -4578,6 +4578,9 @@ get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
  * See comments for struct TM_FailureData for additional info.
  *
  * See README.tuplock for a thorough explanation of this mechanism.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it returns immediately on a remote relation.
  */
 TM_Result
 heap_lock_tuple(Relation relation, HeapTuple tuple,
@@ -4602,16 +4605,6 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	bool		cleared_all_frozen = false;
 
 	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
-
-	/*
-	 * Remotexact
-	 * Locking is a no-op for remote relations because they are in local buffer.
-	 * This check must happen after the assignment of the "buffer" variable above
-	 * so that a correct buffer is returned.
-	 */
-	if (RelationIsRemote(relation))
-		return TM_Ok;
-
 	block = ItemPointerGetBlockNumber(tid);
 
 	/*
@@ -4632,6 +4625,18 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	tuple->t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tuple->t_len = ItemIdGetLength(lp);
 	tuple->t_tableOid = RelationGetRelid(relation);
+
+	/*
+	 * Remotexact
+	 * Locking is a no-op for remote relations because they are in the local buffer.
+	 * This check must happen here so that the buffer and tuple variables are always
+	 * properly populated.
+	 */
+	if (RelationIsRemote(relation))
+	{
+		result = TM_Ok;
+		goto out_locked;
+	}
 
 l3:
 	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), tuple, cid, *buffer);
@@ -5735,6 +5740,10 @@ test_lockmode_for_conflict(MultiXactStatus status, TransactionId xid,
  * Fetch the tuple pointed to by tid in rel, and mark it as locked by the given
  * xid with the given mode; if this tuple is updated, recurse to lock the new
  * version as well.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it is called through heap_lock_tuple, which
+ * returns immediately on remote relations.
  */
 static TM_Result
 heap_lock_updated_tuple_rec(Relation rel, ItemPointer tid, TransactionId xid,

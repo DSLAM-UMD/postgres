@@ -678,6 +678,11 @@ heapam_relation_copy_data(Relation rel, const RelFileNode *newrnode)
 	smgrclose(dstrel);
 }
 
+/*
+ * Remotexact (xid)
+ * This function is xid-safe because it is called as part of the cluster or vacuum
+ * commands, which are never called on a remote relation.
+ */
 static void
 heapam_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap,
 								 Relation OldIndex, bool use_sort,
@@ -1014,6 +1019,11 @@ heapam_scan_analyze_next_block(TableScanDesc scan, BlockNumber blockno,
 	return true;
 }
 
+/*
+ * Remotexact (xid)
+ * This function is xid-safe because it is called as part of the analyze
+ * command, which is never called on a remote relation.
+ */
 static bool
 heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 							   double *liverows, double *deadrows,

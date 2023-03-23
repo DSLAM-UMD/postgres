@@ -4517,6 +4517,9 @@ get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
  * See comments for struct TM_FailureData for additional info.
  *
  * See README.tuplock for a thorough explanation of this mechanism.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it returns immediately on a remote relation.
  */
 TM_Result
 heap_lock_tuple(Relation relation, HeapTuple tuple,
@@ -4540,13 +4543,6 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	bool		have_tuple_lock = false;
 	bool		cleared_all_frozen = false;
 
-	/*
-	 * Remotexact
-	 * Locking is a no-op for remote relations because they are in local buffer
-	 */
-	if (RelationIsRemote(relation))
-		return TM_Ok;
-
 	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 	block = ItemPointerGetBlockNumber(tid);
 
@@ -4568,6 +4564,18 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	tuple->t_data = (HeapTupleHeader) PageGetItem(page, lp);
 	tuple->t_len = ItemIdGetLength(lp);
 	tuple->t_tableOid = RelationGetRelid(relation);
+
+	/*
+	 * Remotexact
+	 * Locking is a no-op for remote relations because they are in the local buffer.
+	 * This check must happen here so that the buffer and tuple variables are always
+	 * properly populated.
+	 */
+	if (RelationIsRemote(relation))
+	{
+		result = TM_Ok;
+		goto out_locked;
+	}
 
 l3:
 	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), tuple, cid, *buffer);

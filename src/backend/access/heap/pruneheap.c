@@ -593,6 +593,10 @@ heap_prune_satisfies_vacuum(PruneState *prstate, HeapTuple tup, Buffer buffer)
  * state are added to nowunused[].
  *
  * Returns the number of tuples (to be) deleted from the page.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it is called by heap_page_prune_opt, which
+ * immediately returns when the relation is remote.
  */
 static int
 heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)

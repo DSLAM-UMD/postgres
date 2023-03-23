@@ -179,8 +179,11 @@ analyze_rel(Oid relid, RangeVar *relation,
 	 * trying to analyze these is rather pointless, since their contents are
 	 * probably not up-to-date on disk.  (We don't throw a warning here; it
 	 * would just lead to chatter during a database-wide ANALYZE.)
+	 * 
+	 * Remotexact
+	 * Ignore remote tables
 	 */
-	if (RELATION_IS_OTHER_TEMP(onerel))
+	if (RELATION_IS_OTHER_TEMP(onerel) || RelationIsRemote(onerel))
 	{
 		relation_close(onerel, ShareUpdateExclusiveLock);
 		return;

@@ -1167,6 +1167,11 @@ heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 	return false;
 }
 
+/*
+ * Remotexact (xid)
+ * This function is used for building index on existing data. We do not
+ * support building indexes on remote relations so this function is xid-safe
+ */
 static double
 heapam_index_build_range_scan(Relation heapRelation,
 							  Relation indexRelation,
@@ -1197,6 +1202,12 @@ heapam_index_build_range_scan(Relation heapRelation,
 	BlockNumber previous_blkno = InvalidBlockNumber;
 	BlockNumber root_blkno = InvalidBlockNumber;
 	OffsetNumber root_offsets[MaxHeapTuplesPerPage];
+
+	/* 
+	 * Remotexact
+	 * We do not support building indexes on remote relations
+	 */
+	Assert(!RelationIsRemote(heapRelation));
 
 	/*
 	 * sanity checks
@@ -1742,6 +1753,11 @@ heapam_index_build_range_scan(Relation heapRelation,
 	return reltuples;
 }
 
+/*
+ * Remotexact (xid)
+ * This function is used during index build. We do not support building indexes on
+ * remote relations so this function is xid-safe.
+ */
 static void
 heapam_index_validate_scan(Relation heapRelation,
 						   Relation indexRelation,
@@ -1767,6 +1783,12 @@ heapam_index_validate_scan(Relation heapRelation,
 	ItemPointer indexcursor = NULL;
 	ItemPointerData decoded;
 	bool		tuplesort_empty = false;
+
+	/* 
+	 * Remotexact
+	 * We do not support building indexes on remote relations
+	 */
+	Assert(!RelationIsRemote(heapRelation));
 
 	/*
 	 * sanity checks
@@ -2217,6 +2239,10 @@ heapam_scan_bitmap_next_block(TableScanDesc scan,
 			if (valid)
 			{
 				hscan->rs_vistuples[ntup++] = offnum;
+				/*
+				 * Remotexact (xid)
+				 * This is safe because remote relations are ignore in predicate locking
+				 */
 				PredicateLockTID(scan->rs_rd, &loctup.t_self, snapshot,
 								 HeapTupleHeaderGetXmin(loctup.t_data));
 			}

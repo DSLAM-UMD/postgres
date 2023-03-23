@@ -475,7 +475,7 @@ tuple_lock_retry:
 					 * variable instead of doing HeapTupleHeaderGetXmin again.
 					 */
 					if (TransactionIdIsCurrentTransactionId(priorXmax) &&
-						HeapTupleHeaderGetCmin(tuple->t_data) >= cid)
+						HeapTupleHeaderGetCmin(RelationIsRemote(relation), tuple->t_data) >= cid)
 					{
 						tmfd->xmax = priorXmax;
 
@@ -483,7 +483,7 @@ tuple_lock_retry:
 						 * Cmin is the problematic value, so store that. See
 						 * above.
 						 */
-						tmfd->cmax = HeapTupleHeaderGetCmin(tuple->t_data);
+						tmfd->cmax = HeapTupleHeaderGetCmin(RelationIsRemote(relation), tuple->t_data);
 						ReleaseBuffer(buffer);
 						return TM_SelfModified;
 					}

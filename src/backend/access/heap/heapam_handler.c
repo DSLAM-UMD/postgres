@@ -368,6 +368,11 @@ tuple_lock_retry:
 	result = heap_lock_tuple(relation, tuple, cid, mode, wait_policy,
 							 follow_updates, &buffer, tmfd);
 
+	/*
+	 * Remotexact (xid)
+	 * The result on a remote relation is always TM_Ok so this if block
+	 * is never executed in that case.
+	 */
 	if (result == TM_Updated &&
 		(flags & TUPLE_LOCK_FLAG_FIND_LAST_VERSION))
 	{

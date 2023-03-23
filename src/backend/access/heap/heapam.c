@@ -1772,6 +1772,10 @@ heap_fetch(Relation relation,
 	valid = HeapTupleSatisfiesVisibility(RelationGetRegion(relation), tuple, snapshot, buffer);
 
 	if (valid)
+		/*
+		 * Remotexact (xid)
+		 * This is safe because remote relations are ignore in predicate locking
+		 */
 		PredicateLockTID(relation, &(tuple->t_self), snapshot,
 						 HeapTupleHeaderGetXmin(tuple->t_data));
 
@@ -1919,6 +1923,10 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 			if (valid)
 			{
 				ItemPointerSetOffsetNumber(tid, offnum);
+				/*
+				 * Remotexact (xid)
+				 * This is safe because remote relations are ignore in predicate locking
+				 */
 				PredicateLockTID(relation, &heapTuple->t_self, snapshot,
 								 HeapTupleHeaderGetXmin(heapTuple->t_data));
 				if (all_dead)
@@ -6753,6 +6761,10 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
  *
  * NB: It is not enough to set hint bits to indicate an XID committed/aborted.
  * The *frz WAL record we output completely removes all old XIDs during REDO.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it is only called as part of vacuuming,
+ * which is never run on a remote relation.
  */
 bool
 heap_prepare_freeze_tuple(HeapTupleHeader tuple,
@@ -7467,6 +7479,10 @@ ConditionalMultiXactIdWait(MultiXactId multi, MultiXactStatus status,
  *
  * Check to see whether any of the XID fields of a tuple (xmin, xmax, xvac)
  * will eventually require freezing (if tuple isn't removed by pruning first).
+ * 
+ * Remotexact (xid)
+ * The xid accesses in the function are safe because they do not have
+ * side effects
  */
 bool
 heap_tuple_needs_eventual_freeze(HeapTupleHeader tuple)
@@ -7520,6 +7536,10 @@ heap_tuple_needs_eventual_freeze(HeapTupleHeader tuple)
  * The *relfrozenxid_out and *relminmxid_out input/output arguments work just
  * like the heap_prepare_freeze_tuple arguments that they're based on.  We
  * never freeze here, which makes tracking the oldest extant XID/MXID simple.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it is only called as part of lazy vacuuming,
+ * which is never called on a remote relation.
  */
 bool
 heap_tuple_would_freeze(HeapTupleHeader tuple, TransactionId cutoff_xid,
@@ -8514,6 +8534,9 @@ log_heap_visible(RelFileNode rnode, Buffer heap_buffer, Buffer vm_buffer,
 /*
  * Perform XLogInsert for a heap-update operation.  Caller must already
  * have modified the buffer(s) and marked them dirty.
+ * 
+ * Remotexact (xid)
+ * This function is xid-safe because it is never called on a remote relation.
  */
 static XLogRecPtr
 log_heap_update(Relation reln, Buffer oldbuf,
@@ -10309,6 +10332,10 @@ heap_mask(char *pagedata, BlockNumber blkno)
  * tuple has been read. The caller must hold at least a shared lock on the
  * buffer, because this function might set hint bits on the tuple. There is
  * currently no known reason to call this function from an index AM.
+ *
+ * Remotexact (xid)
+ * This function is xid-safe because it returns immediately at the first check
+ * if it is called on a remote relation.
  */
 void
 HeapCheckForSerializableConflictOut(bool visible, Relation relation,

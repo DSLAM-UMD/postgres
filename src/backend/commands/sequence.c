@@ -1207,6 +1207,10 @@ read_seq_tuple(Relation rel, Buffer *buf, HeapTuple seqdatatuple)
 	 * see this has happened, clean up after it.  We treat this like a hint
 	 * bit update, ie, don't bother to WAL-log it, since we can certainly do
 	 * this again if the update gets lost.
+	 * 
+	 * Remotexact (xid)
+	 * Reading xmax from a remote relation is safe here because it does not have
+	 * any side effect
 	 */
 	Assert(!(seqdatatuple->t_data->t_infomask & HEAP_XMAX_IS_MULTI));
 	if (HeapTupleHeaderGetRawXmax(seqdatatuple->t_data) != InvalidTransactionId)

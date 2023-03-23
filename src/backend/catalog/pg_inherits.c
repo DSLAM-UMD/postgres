@@ -146,6 +146,12 @@ find_inheritance_children_extended(Oid parentrelId, bool omit_detached,
 				TransactionId xmin;
 				Snapshot	snap;
 
+				/*
+				 * Remotexact (xid)
+				 * This code path is reached when there is a concurrent detachment of
+				 * a partition. We assume no DDL happen in concurrent to DML so this
+				 * is fine.
+				 */
 				xmin = HeapTupleHeaderGetXmin(inheritsTuple->t_data);
 				snap = GetActiveSnapshot();
 

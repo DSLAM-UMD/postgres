@@ -1753,6 +1753,10 @@ retry:
 					/*
 					 * The inserter definitely committed. But is it old enough
 					 * that everyone sees it as committed?
+					 * 
+					 * Remotexact (xid)
+					 * Reading xmin here is safe because this code is only called through vacuum_rel,
+					 * which skips remote relations.
 					 */
 					xmin = HeapTupleHeaderGetXmin(tuple.t_data);
 					if (!TransactionIdPrecedes(xmin, vacrel->OldestXmin))
@@ -3370,6 +3374,10 @@ heap_page_is_all_visible(LVRelState *vacrel, Buffer buf,
 					/*
 					 * The inserter definitely committed. But is it old enough
 					 * that everyone sees it as committed?
+					 * 
+					 * Remotexact (xid)
+					 * Reading xmin here is safe because this code is only called through vacuum_rel,
+					 * which skips remote relations.
 					 */
 					xmin = HeapTupleHeaderGetXmin(tuple.t_data);
 					if (!TransactionIdPrecedes(xmin, vacrel->OldestXmin))

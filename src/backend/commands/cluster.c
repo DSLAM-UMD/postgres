@@ -21,6 +21,7 @@
 #include "access/heapam.h"
 #include "access/multixact.h"
 #include "access/relscan.h"
+#include "access/remotexact.h"
 #include "access/tableam.h"
 #include "access/toast_internals.h"
 #include "access/transam.h"
@@ -156,6 +157,12 @@ cluster(ParseState *pstate, ClusterStmt *stmt, bool isTopLevel)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("cannot cluster temporary tables of other sessions")));
+
+		/* Remotexact */
+		if (RelationIsRemote(rel))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot cluster a remote table")));
 
 		if (stmt->indexname == NULL)
 		{

@@ -357,6 +357,10 @@ end_heap_rewrite(RewriteState state)
  * state		opaque state as returned by begin_heap_rewrite
  * old_tuple	original tuple in the old heap
  * new_tuple	new, rewritten tuple to be inserted to new heap
+ * 
+ * Remotexact (xid)
+ * The two code paths that lead to this are cluster and vacuum, which are never
+ * called on a remote relation
  */
 void
 rewrite_heap_tuple(RewriteState state,
@@ -559,6 +563,10 @@ rewrite_heap_tuple(RewriteState state,
  * Returns true if a tuple was removed from the unresolved_tups table.
  * This indicates that that tuple, previously thought to be "recently dead",
  * is now known really dead and won't be written to the output.
+ * 
+ * Remotexact (xid)
+ * The two code paths that lead to this are cluster and vacuum, which are never
+ * called on a remote relation
  */
 bool
 rewrite_heap_dead_tuple(RewriteState state, HeapTuple old_tuple)
@@ -1063,6 +1071,10 @@ logical_rewrite_log_mapping(RewriteState state, TransactionId xid,
 /*
  * Perform logical remapping for a tuple that's mapped from old_tid to
  * new_tuple->t_self by rewrite_heap_tuple() if necessary for the tuple.
+ *
+ * Remotexact (xid)
+ * The two code paths that lead to this are cluster and vacuum, which are never
+ * called on a remote relation
  */
 static void
 logical_rewrite_heap_tuple(RewriteState state, ItemPointerData old_tid,

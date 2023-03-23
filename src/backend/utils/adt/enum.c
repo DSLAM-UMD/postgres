@@ -15,6 +15,7 @@
 
 #include "access/genam.h"
 #include "access/htup_details.h"
+#include "access/remotexact.h"
 #include "access/table.h"
 #include "catalog/pg_enum.h"
 #include "libpq/pqformat.h"
@@ -75,11 +76,25 @@ check_safe_enum_use(HeapTuple enumval_tup)
 	/*
 	 * Usually, a row would get hinted as committed when it's read or loaded
 	 * into syscache; but just in case not, let's check the xmin directly.
+	 * 
+	 * Remotexact (xid)
+	 * The pg_enum is modified by the global region only so if we're not in
+	 * the global region, we need to use pg_csn to check if the tuple is committed
+	 * or not.
 	 */
 	xmin = HeapTupleHeaderGetXmin(enumval_tup->t_data);
-	if (!TransactionIdIsInProgress(xmin) &&
-		TransactionIdDidCommit(xmin))
-		return;
+	if (current_region == GLOBAL_REGION)
+	{
+		if (!TransactionIdIsInProgress(xmin) &&
+			TransactionIdDidCommit(xmin))
+			return;
+	}
+	else
+	{
+		if (!HeapTupleHeaderIsXminLocal(enumval_tup->t_data) &&
+			RemoteTransactionIdDidCommit(GLOBAL_REGION, xmin))
+			return;
+	}
 
 	/*
 	 * Check if the enum value is uncommitted.  If not, it's safe, because it

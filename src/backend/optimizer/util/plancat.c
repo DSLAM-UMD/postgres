@@ -244,6 +244,10 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			 * If the index is valid, but cannot yet be used, ignore it; but
 			 * mark the plan we are generating as transient. See
 			 * src/backend/access/heap/README.HOT for discussion.
+			 * 
+			 * Remotexact (xid)
+			 * This is fine as long as the assumption that DDL operations never run concurrently
+			 * with DML operations holds.
 			 */
 			if (index->indcheckxmin &&
 				!TransactionIdPrecedes(HeapTupleHeaderGetXmin(indexRelation->rd_indextuple->t_data),

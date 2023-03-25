@@ -1830,6 +1830,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 {
 	Page		dp = (Page) BufferGetPage(buffer);
 	TransactionId prev_xmax = InvalidTransactionId;
+	bool prev_xmax_is_local;
 	BlockNumber blkno;
 	OffsetNumber offnum;
 	bool		at_chain_start;
@@ -1896,10 +1897,15 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		/*
 		 * The xmin should match the previous xmax value, else chain is
 		 * broken.
+		 * 
+		 * Remotexact(xid)
+		 * On a remote relation, if the previous xmax has a different locality from
+		 * the current xmin then they are unrelated regardless of their values.
 		 */
 		if (TransactionIdIsValid(prev_xmax) &&
-			!TransactionIdEquals(prev_xmax,
-								 HeapTupleHeaderGetXmin(heapTuple->t_data)))
+			(prev_xmax_is_local != HeapTupleHeaderIsXminLocal(heapTuple->t_data) ||
+			 !TransactionIdEquals(prev_xmax,
+								  HeapTupleHeaderGetXmin(heapTuple->t_data))))
 			break;
 
 		/*
@@ -1956,6 +1962,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 			offnum = ItemPointerGetOffsetNumber(&heapTuple->t_data->t_ctid);
 			at_chain_start = false;
 			prev_xmax = HeapTupleHeaderGetUpdateXid(heapTuple->t_data);
+			prev_xmax_is_local = HeapTupleHeaderIsXmaxLocal(heapTuple->t_data);
 		}
 		else
 			break;				/* end of chain */
@@ -1983,6 +1990,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 	Snapshot	snapshot = sscan->rs_snapshot;
 	ItemPointerData ctid;
 	TransactionId priorXmax;
+	bool priorXmaxIsLocal;
 
 	/*
 	 * table_tuple_get_latest_tid() verified that the passed in tid is valid.
@@ -2046,9 +2054,14 @@ heap_get_latest_tid(TableScanDesc sscan,
 		/*
 		 * After following a t_ctid link, we might arrive at an unrelated
 		 * tuple.  Check for XMIN match.
+		 * 
+		 * Remotexact(xid)
+		 * On a remote relation, if the previous xmax has a different locality from
+		 * the current xmin then they are unrelated regardless of their values.
 		 */
 		if (TransactionIdIsValid(priorXmax) &&
-			!TransactionIdEquals(priorXmax, HeapTupleHeaderGetXmin(tp.t_data)))
+			(priorXmaxIsLocal != HeapTupleHeaderIsXminLocal(tp.t_data) ||
+			 !TransactionIdEquals(priorXmax, HeapTupleHeaderGetXmin(tp.t_data))))
 		{
 			UnlockReleaseBuffer(buffer);
 			break;
@@ -2077,6 +2090,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 
 		ctid = tp.t_data->t_ctid;
 		priorXmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
+		priorXmaxIsLocal = HeapTupleHeaderIsXmaxLocal(tp.t_data);
 		UnlockReleaseBuffer(buffer);
 	}							/* end of loop */
 }
@@ -3062,6 +3076,10 @@ l1:
 		Assert(result != TM_Updated ||
 			   !ItemPointerEquals(&tp.t_self, &tp.t_data->t_ctid));
 		tmfd->ctid = tp.t_data->t_ctid;
+		/*
+		 * Remotexact (xid)
+		 * This value is not used anywhere that may cause trouble
+		 */
 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
 		if (result == TM_SelfModified)
 			tmfd->cmax = HeapTupleHeaderGetCmax(tp.t_data);
@@ -3712,6 +3730,10 @@ l2:
 		Assert(result != TM_Updated ||
 			   !ItemPointerEquals(&oldtup.t_self, &oldtup.t_data->t_ctid));
 		tmfd->ctid = oldtup.t_data->t_ctid;
+		/*
+		 * Remotexact (xid)
+		 * This value is not used anywhere that may cause trouble
+		 */
 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(oldtup.t_data);
 		if (result == TM_SelfModified)
 			tmfd->cmax = HeapTupleHeaderGetCmax(oldtup.t_data);

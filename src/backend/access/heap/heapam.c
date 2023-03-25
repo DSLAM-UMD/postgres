@@ -7587,6 +7587,9 @@ heap_tuple_needs_freeze(HeapTupleHeader tuple, TransactionId cutoff_xid,
  * This is used as the basis for generating Hot Standby conflicts, so
  * if a tuple was never visible then removing it should not conflict
  * with queries.
+ * 
+ * Remotexact (xid)
+ * This function is never called on a remote relation
  */
 void
 HeapTupleHeaderAdvanceLatestRemovedXid(HeapTupleHeader tuple,
@@ -7702,6 +7705,21 @@ heap_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate)
 				lastfreespace = 0,
 				actualfreespace = 0;
 	bool		bottomup_final_block = false;
+
+	/*
+	 * Remotexact
+	 * We only allow the owning region to perform bottom-up deletion on its
+	 * indexes so output an empty list if we are on a remote relation. For
+	 * non-bottom-up usage, keep the orignal TID list intact. In any case,
+	 * we can return an InvalidTransactionId as latestRemovedXid because this
+	 * value is used in WAL, which is not needed for a remote relation.
+	 */
+	if (RelationIsRemote(rel))
+	{
+	 	if (delstate->bottomup)
+			delstate->ndeltids = 0;
+		return InvalidTransactionId;
+	}
 
 	InitNonVacuumableSnapshot(SnapshotNonVacuumable, GlobalVisTestFor(rel));
 

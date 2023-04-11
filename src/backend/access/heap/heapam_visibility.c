@@ -187,7 +187,7 @@ HeapTupleSatisfiesSelf(int region, HeapTuple htup, Snapshot snapshot, Buffer buf
 			return false;
 
 		/*
-		 * Remotexact
+		 * Remotexact (xid)
 		 * Use the same code path as normal postgres if xmin is local
 		 * (implying xmax is also local)
 		 */
@@ -337,7 +337,7 @@ HeapTupleSatisfiesSelf(int region, HeapTuple htup, Snapshot snapshot, Buffer buf
 	}
 
 	/*
-	 * Remotexact
+	 * Remotexact (xid)
 	 * Use the same code path as normal postgres if xmax is local.
 	 */
 	if (!is_remote || HeapTupleHeaderIsXmaxLocal(tuple))
@@ -523,7 +523,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 			return TM_Invisible;
 
 		/*
-		 * Remotexact
+		 * Remotexact (xid)
 		 * Use the same code path as normal postgres if current relation is local or xmin is local
 		 * (implying xmax is also local)
 		 */
@@ -764,7 +764,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 	}
 
 	/*
-	 * Remotexact
+	 * Remotexact (xid)
 	 * Use the same code path as normal postgres if current relation is local or xmax is local
 	 */
 	if (!is_remote || HeapTupleHeaderIsXmaxLocal(tuple))
@@ -857,7 +857,7 @@ HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 			return false;
 
 		/*
-		 * Remotexact
+		 * Remotexact (xid)
 		 * Use the same code path as normal postgres if xmin is local
 		 * (implying xmax is also local)
 		 */
@@ -1029,7 +1029,7 @@ HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 	}
 
 	/*
-	 * Remotexact
+	 * Remotexact (xid)
 	 * Use the same code path as normal postgres if xmax is local.
 	 */
 	if (!is_remote || HeapTupleHeaderIsXmaxLocal(tuple))
@@ -1120,7 +1120,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 			return false;
 
 		/*
-		 * Remotexact
+		 * Remotexact (xid)
 		 * Use the same code path as normal postgres if xmin is local
 		 * (implying xmax is also local)
 		 */
@@ -1288,7 +1288,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 	if (!(tuple->t_infomask & HEAP_XMAX_COMMITTED))
 	{
 		/*
-		 * Remotexact
+		 * Remotexact (xid)
 		 * Use the same code path as normal postgres if xmax is local.
 		 */
 		if (!is_remote || HeapTupleHeaderIsXmaxLocal(tuple))

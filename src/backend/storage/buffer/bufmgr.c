@@ -833,6 +833,10 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 	/*
 	 * wal_redo postgres is working in single user mode, we do not need to synchronize access to shared buffer,
 	 * so let's use local buffers instead
+	 * 
+	 * Remotexact
+	 * We store pages from remote relations in the local buffers. If we store them in the shared buffers instead,
+	 * we need a mechanism to invalidate the pages when they are changed by the owning regions.
 	 */
 	bool		isLocalBuf = SmgrIsTemp(smgr) || RegionIsRemote(smgr->smgr_region) || am_wal_redo_postgres;
 

@@ -2257,21 +2257,23 @@ CommitTransaction(void)
 		PreCommit_CheckForSerializationFailure();
 
 		/*
-		* It might be less intrusive to register this function as a callback for the
-		* XACT_EVENT_PRE_COMMIT event. However, if we do that, it is still possible
-		* for the transaction to be aborted (e.g. in PreCommit_CheckForSerializationFailure)
-		* after the callback returns.
-		* 
-		* This is not acceptable because PreCommit_ExecuteRemoteXact will log a vote for
-		* commit in the xact server, and we don't want the transaction to change its decision
-		* after the vote is made.  
-		* 
-		* Putting it here after the check for serialization failure above also allows
-		* SSI to catch serialization error before we do any cross-region communication.
-		* 
-		* This isn't called in PrepareTransaction because we only want to do this
-		* at the coordinator.
-		*/
+		 * Remotexact
+		 *
+		 * It might be less intrusive to register this function as a callback for the
+		 * XACT_EVENT_PRE_COMMIT event. However, if we do that, it is still possible
+		 * for the transaction to be aborted (e.g. in PreCommit_CheckForSerializationFailure)
+		 * after the callback returns.
+		 * 
+		 * This is not acceptable because PreCommit_ExecuteRemoteXact will log a vote for
+		 * commit in the xact server, and we don't want the transaction to change its decision
+		 * after the vote is made.  
+		 * 
+		 * Putting it here after the check for serialization failure above also allows
+		 * SSI to catch serialization error before we do any cross-region communication.
+		 * 
+		 * This isn't called in PrepareTransaction because we only want to do this
+		 * at the coordinator.
+		 */
 		PreCommit_ExecuteRemoteXact();
 	}
 

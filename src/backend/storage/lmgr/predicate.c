@@ -491,12 +491,16 @@ static void ReleasePredicateLocksLocal(void);
 /*
  * Does this relation participate in predicate locking? Temporary and system
  * relations are exempt, as are materialized views.
+ * 
+ * Remotexact
+ * Remote relations do not participate in local predicate locking
  */
 static inline bool
-PredicateLockingNeededForRelation(Relation relation)
+PredicateLockingNeededForRelation(Relation relation, bool allow_remote_relation)
 {
 	return !(relation->rd_id < FirstUnpinnedObjectId ||
 			 RelationUsesLocalBuffers(relation) ||
+			 (!allow_remote_relation && RelationIsRemote(relation)) ||
 			 relation->rd_rel->relkind == RELKIND_MATVIEW);
 }
 
@@ -512,7 +516,7 @@ PredicateLockingNeededForRelation(Relation relation)
  * common case that serialization is not needed.
  */
 static inline bool
-SerializationNeededForRead(Relation relation, Snapshot snapshot)
+SerializationNeededForRead(Relation relation, Snapshot snapshot, bool allow_remote_relation)
 {
 	/* Nothing to do if this is not a serializable transaction */
 	if (MySerializableXact == InvalidSerializableXact)
@@ -545,7 +549,7 @@ SerializationNeededForRead(Relation relation, Snapshot snapshot)
 	}
 
 	/* Check if the relation doesn't participate in predicate locking */
-	if (!PredicateLockingNeededForRelation(relation))
+	if (!PredicateLockingNeededForRelation(relation, allow_remote_relation))
 		return false;
 
 	return true;				/* no excuse to skip predicate locking */
@@ -563,7 +567,7 @@ SerializationNeededForWrite(Relation relation)
 		return false;
 
 	/* Check if the relation doesn't participate in predicate locking */
-	if (!PredicateLockingNeededForRelation(relation))
+	if (!PredicateLockingNeededForRelation(relation, false))
 		return false;
 
 	return true;				/* no excuse to skip predicate locking */
@@ -2623,7 +2627,7 @@ PredicateLockRelation(Relation relation, Snapshot snapshot)
 {
 	PREDICATELOCKTARGETTAG tag;
 
-	if (!SerializationNeededForRead(relation, snapshot))
+	if (!SerializationNeededForRead(relation, snapshot, true))
 		return;
 
 	SET_PREDICATELOCKTARGETTAG_RELATION(tag,
@@ -2646,7 +2650,7 @@ PredicateLockPage(Relation relation, BlockNumber blkno, Snapshot snapshot)
 {
 	PREDICATELOCKTARGETTAG tag;
 
-	if (!SerializationNeededForRead(relation, snapshot))
+	if (!SerializationNeededForRead(relation, snapshot, true))
 		return;
 
 	SET_PREDICATELOCKTARGETTAG_PAGE(tag,
@@ -2665,11 +2669,11 @@ PredicateLockPage(Relation relation, BlockNumber blkno, Snapshot snapshot)
  */
 void
 PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
-				 TransactionId tuple_xid)
+				 TransactionId tuple_xid, bool is_xid_local)
 {
 	PREDICATELOCKTARGETTAG tag;
 
-	if (!SerializationNeededForRead(relation, snapshot))
+	if (!SerializationNeededForRead(relation, snapshot, true))
 		return;
 
 	/*
@@ -2677,8 +2681,14 @@ PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
 	 */
 	if (relation->rd_index == NULL)
 	{
+		bool is_remote_relation = RelationIsRemote(relation);
 		/* If we wrote it; we already have a write lock. */
-		if (TransactionIdIsCurrentTransactionId(tuple_xid))
+		/*
+		 * Remotexact
+		 * If the relation is remote, a local xid means we wrote it
+		 */
+		if ((is_remote_relation && is_xid_local) ||
+			(!is_remote_relation && TransactionIdIsCurrentTransactionId(tuple_xid)))
 			return;
 	}
 
@@ -3022,7 +3032,7 @@ DropAllPredicateLocksFromTable(Relation relation, bool transfer)
 	if (!TransactionIdIsValid(PredXact->SxactGlobalXmin))
 		return;
 
-	if (!PredicateLockingNeededForRelation(relation))
+	if (!PredicateLockingNeededForRelation(relation, true))
 		return;
 
 	dbId = relation->rd_node.dbNode;
@@ -3237,7 +3247,7 @@ PredicateLockPageSplit(Relation relation, BlockNumber oldblkno,
 	if (!TransactionIdIsValid(PredXact->SxactGlobalXmin))
 		return;
 
-	if (!PredicateLockingNeededForRelation(relation))
+	if (!PredicateLockingNeededForRelation(relation, true))
 		return;
 
 	Assert(oldblkno != newblkno);
@@ -4149,7 +4159,7 @@ XidIsConcurrent(TransactionId xid)
 bool
 CheckForSerializableConflictOutNeeded(Relation relation, Snapshot snapshot)
 {
-	if (!SerializationNeededForRead(relation, snapshot))
+	if (!SerializationNeededForRead(relation, snapshot, false))
 		return false;
 
 	/* Check if someone else has already decided that we need to die */
@@ -4185,7 +4195,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	SERIALIZABLEXID *sxid;
 	SERIALIZABLEXACT *sxact;
 
-	if (!SerializationNeededForRead(relation, snapshot))
+	if (!SerializationNeededForRead(relation, snapshot, false))
 		return;
 
 	/* Check if someone else has already decided that we need to die */

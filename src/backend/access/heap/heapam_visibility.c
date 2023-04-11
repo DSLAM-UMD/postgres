@@ -114,13 +114,19 @@ static inline void
 SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 			uint16 infomask, TransactionId xid)
 {
-	if (TransactionIdIsValid(xid))
+	/*
+	 * Remotexact (xid)
+	 * Originally, the BufferIsPermanent check was in the inner  if-statement. However,
+	 * that caused TransactionIdGetCommitLSN to be possibly called on a remote xid. By
+	 * checking if the buffer is permanent early, we can skip this code block entirely
+	 * for a remote page, which is stored in a local buffer.
+	 */
+	if (TransactionIdIsValid(xid) && BufferIsPermanent(buffer))
 	{
 		/* NB: xid must be known committed here! */
 		XLogRecPtr	commitLSN = TransactionIdGetCommitLSN(xid);
 
-		if (BufferIsPermanent(buffer) && XLogNeedsFlush(commitLSN) &&
-			BufferGetLSNAtomic(buffer) < commitLSN)
+		if (XLogNeedsFlush(commitLSN) && BufferGetLSNAtomic(buffer) < commitLSN)
 		{
 			/* not flushed and no LSN interlock, so don't set hint */
 			return;

@@ -2246,10 +2246,11 @@ heapam_scan_bitmap_next_block(TableScanDesc scan,
 				hscan->rs_vistuples[ntup++] = offnum;
 				/*
 				 * Remotexact (xid)
-				 * This is safe because remote relations are ignore in predicate locking
+				 * This is safe because PredicateLockTID can handle the remote relation case.
 				 */
 				PredicateLockTID(scan->rs_rd, &loctup.t_self, snapshot,
-								 HeapTupleHeaderGetXmin(loctup.t_data));
+								 HeapTupleHeaderGetXmin(loctup.t_data),
+								 HeapTupleHeaderIsXminLocal(loctup.t_data));
 			}
 			HeapCheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
 												buffer, snapshot);

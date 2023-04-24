@@ -2064,7 +2064,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 	Snapshot	snapshot = sscan->rs_snapshot;
 	ItemPointerData ctid;
 	TransactionId priorXmax;
-	bool priorXmaxIsLocal;
+	bool priorXmaxIsLocal = false;
 
 	/*
 	 * table_tuple_get_latest_tid() verified that the passed in tid is valid.

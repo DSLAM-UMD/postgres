@@ -723,7 +723,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 				 * that the page is reconsidered for pruning in future.
 				 */
 				heap_prune_record_prunable(prstate,
-										   HeapTupleHeaderGetUpdateXid(htup));
+										   HeapTupleHeaderGetUpdateXid(current_region, htup));
 				break;
 
 			case HEAPTUPLE_DELETE_IN_PROGRESS:
@@ -733,7 +733,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 				 * that the page is reconsidered for pruning in future.
 				 */
 				heap_prune_record_prunable(prstate,
-										   HeapTupleHeaderGetUpdateXid(htup));
+										   HeapTupleHeaderGetUpdateXid(current_region, htup));
 				break;
 
 			case HEAPTUPLE_LIVE:
@@ -784,7 +784,7 @@ heap_prune_chain(Buffer buffer, OffsetNumber rootoffnum, PruneState *prstate)
 		Assert(ItemPointerGetBlockNumber(&htup->t_ctid) ==
 			   BufferGetBlockNumber(buffer));
 		offnum = ItemPointerGetOffsetNumber(&htup->t_ctid);
-		priorXmax = HeapTupleHeaderGetUpdateXid(htup);
+		priorXmax = HeapTupleHeaderGetUpdateXid(current_region, htup);
 	}
 
 	/*
@@ -1014,7 +1014,7 @@ heap_get_root_tuples(Page page, OffsetNumber *root_offsets)
 
 			/* Set up to scan the HOT-chain */
 			nextoffnum = ItemPointerGetOffsetNumber(&htup->t_ctid);
-			priorXmax = HeapTupleHeaderGetUpdateXid(htup);
+			priorXmax = HeapTupleHeaderGetUpdateXid(current_region, htup);
 		}
 		else
 		{
@@ -1062,7 +1062,7 @@ heap_get_root_tuples(Page page, OffsetNumber *root_offsets)
 			Assert(!HeapTupleHeaderIndicatesMovedPartitions(htup));
 
 			nextoffnum = ItemPointerGetOffsetNumber(&htup->t_ctid);
-			priorXmax = HeapTupleHeaderGetUpdateXid(htup);
+			priorXmax = HeapTupleHeaderGetUpdateXid(current_region, htup);
 		}
 	}
 }

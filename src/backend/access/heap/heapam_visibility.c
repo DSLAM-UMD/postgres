@@ -244,7 +244,7 @@ HeapTupleSatisfiesSelf(int region, HeapTuple htup, Snapshot snapshot, Buffer buf
 				{
 					TransactionId xmax;
 
-					xmax = HeapTupleGetUpdateXid(tuple);
+					xmax = HeapTupleGetUpdateXid(region, tuple);
 
 					/* not LOCKED_ONLY, so it has to have an xmax */
 					Assert(TransactionIdIsValid(xmax));
@@ -321,7 +321,7 @@ HeapTupleSatisfiesSelf(int region, HeapTuple htup, Snapshot snapshot, Buffer buf
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
 
-		xmax = HeapTupleGetUpdateXid(tuple);
+		xmax = HeapTupleGetUpdateXid(region, tuple);
 
 		/* not LOCKED_ONLY, so it has to have an xmax */
 		Assert(TransactionIdIsValid(xmax));
@@ -591,7 +591,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 
 					if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
 					{
-						if (MultiXactIdIsRunning(xmax, true))
+						if (MultiXactIdIsRunning(region, xmax, true))
 							return TM_BeingModified;
 						else
 							return TM_Ok;
@@ -611,7 +611,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 				{
 					TransactionId xmax;
 
-					xmax = HeapTupleGetUpdateXid(tuple);
+					xmax = HeapTupleGetUpdateXid(region, tuple);
 
 					/* not LOCKED_ONLY, so it has to have an xmax */
 					Assert(TransactionIdIsValid(xmax));
@@ -619,7 +619,8 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 					/* deleting subtransaction must have aborted */
 					if (!TransactionIdIsCurrentTransactionId(xmax))
 					{
-						if (MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple),
+						if (MultiXactIdIsRunning(region,
+												HeapTupleHeaderGetRawXmax(tuple),
 												false))
 							return TM_BeingModified;
 						return TM_Ok;
@@ -705,17 +706,17 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 
 		if (HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask))
 		{
-			if (MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple), true))
+			if (MultiXactIdIsRunning(region, HeapTupleHeaderGetRawXmax(tuple), true))
 				return TM_BeingModified;
 
 			SetHintBits(tuple, buffer, HEAP_XMAX_INVALID, InvalidTransactionId);
 			return TM_Ok;
 		}
 
-		xmax = HeapTupleGetUpdateXid(tuple);
+		xmax = HeapTupleGetUpdateXid(region, tuple);
 		if (!TransactionIdIsValid(xmax))
 		{
-			if (MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple), false))
+			if (MultiXactIdIsRunning(region, HeapTupleHeaderGetRawXmax(tuple), false))
 				return TM_BeingModified;
 		}
 
@@ -730,7 +731,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 				return TM_Invisible;	/* updated before scan started */
 		}
 
-		if (MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple), false))
+		if (MultiXactIdIsRunning(region, HeapTupleHeaderGetRawXmax(tuple), false))
 			return TM_BeingModified;
 
 		if (TransactionIdDidCommit(xmax))
@@ -746,7 +747,7 @@ HeapTupleSatisfiesUpdate(int region, HeapTuple htup, CommandId curcid,
 		 * what about the other members?
 		 */
 
-		if (!MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple), false))
+		if (!MultiXactIdIsRunning(region, HeapTupleHeaderGetRawXmax(tuple), false))
 		{
 			/*
 			 * There's no member, even just a locker, alive anymore, so we can
@@ -914,7 +915,7 @@ HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 				{
 					TransactionId xmax;
 
-					xmax = HeapTupleGetUpdateXid(tuple);
+					xmax = HeapTupleGetUpdateXid(region, tuple);
 
 					/* not LOCKED_ONLY, so it has to have an xmax */
 					Assert(TransactionIdIsValid(xmax));
@@ -1010,7 +1011,7 @@ HeapTupleSatisfiesDirty(int region, HeapTuple htup, Snapshot snapshot,
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
 
-		xmax = HeapTupleGetUpdateXid(tuple);
+		xmax = HeapTupleGetUpdateXid(region, tuple);
 
 		/* not LOCKED_ONLY, so it has to have an xmax */
 		Assert(TransactionIdIsValid(xmax));
@@ -1180,7 +1181,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 				{
 					TransactionId xmax;
 
-					xmax = HeapTupleGetUpdateXid(tuple);
+					xmax = HeapTupleGetUpdateXid(region, tuple);
 
 					/* not LOCKED_ONLY, so it has to have an xmax */
 					Assert(TransactionIdIsValid(xmax));
@@ -1265,7 +1266,7 @@ HeapTupleSatisfiesMVCC(int region, HeapTuple htup, Snapshot snapshot,
 		if (is_remote)
 			Assert(HeapTupleHeaderIsXmaxLocal(tuple));
 
-		xmax = HeapTupleGetUpdateXid(tuple);
+		xmax = HeapTupleGetUpdateXid(region, tuple);
 
 		/* not LOCKED_ONLY, so it has to have an xmax */
 		Assert(TransactionIdIsValid(xmax));
@@ -1453,7 +1454,7 @@ HeapTupleSatisfiesVacuumHorizon(HeapTuple htup, Buffer buffer, TransactionId *de
 				HeapTupleHeaderIsOnlyLocked(tuple))
 				return HEAPTUPLE_INSERT_IN_PROGRESS;
 			/* inserted and then deleted by same xact */
-			if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tuple)))
+			if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(current_region, tuple)))
 				return HEAPTUPLE_DELETE_IN_PROGRESS;
 			/* deleting subtransaction must have aborted */
 			return HEAPTUPLE_INSERT_IN_PROGRESS;
@@ -1512,9 +1513,11 @@ HeapTupleSatisfiesVacuumHorizon(HeapTuple htup, Buffer buffer, TransactionId *de
 				/*
 				 * If it's a pre-pg_upgrade tuple, the multixact cannot
 				 * possibly be running; otherwise have to check.
+				 * Remotexact: Assume this function is only called on current_region.
 				 */
 				if (!HEAP_LOCKED_UPGRADED(tuple->t_infomask) &&
-					MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple),
+					MultiXactIdIsRunning(current_region,
+										 HeapTupleHeaderGetRawXmax(tuple),
 										 true))
 					return HEAPTUPLE_LIVE;
 				SetHintBits(tuple, buffer, HEAP_XMAX_INVALID, InvalidTransactionId);
@@ -1539,7 +1542,7 @@ HeapTupleSatisfiesVacuumHorizon(HeapTuple htup, Buffer buffer, TransactionId *de
 
 	if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
 	{
-		TransactionId xmax = HeapTupleGetUpdateXid(tuple);
+		TransactionId xmax = HeapTupleGetUpdateXid(current_region, tuple);
 
 		/* already checked above */
 		Assert(!HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask));
@@ -1562,9 +1565,10 @@ HeapTupleSatisfiesVacuumHorizon(HeapTuple htup, Buffer buffer, TransactionId *de
 			*dead_after = xmax;
 			return HEAPTUPLE_RECENTLY_DEAD;
 		}
-		else if (!MultiXactIdIsRunning(HeapTupleHeaderGetRawXmax(tuple), false))
+		else if (!MultiXactIdIsRunning(current_region, HeapTupleHeaderGetRawXmax(tuple), false))
 		{
 			/*
+			 * Remotexact: Assume this function is only called on current_region.
 			 * Not in Progress, Not Committed, so either Aborted or crashed.
 			 * Mark the Xmax as invalid.
 			 */
@@ -1734,7 +1738,7 @@ HeapTupleHeaderIsOnlyLocked(HeapTupleHeader tuple)
 		return false;
 
 	/* ... but if it's a multi, then perhaps the updating Xid aborted. */
-	xmax = HeapTupleGetUpdateXid(tuple);
+	xmax = HeapTupleGetUpdateXid(current_region, tuple);
 
 	/* not LOCKED_ONLY, so it has to have an xmax */
 	Assert(TransactionIdIsValid(xmax));
@@ -1778,8 +1782,8 @@ TransactionIdInArray(TransactionId xid, TransactionId *xip, Size num)
  * complicated than when dealing "only" with the present.
  */
 static bool
-HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
-							   Buffer buffer)
+HeapTupleSatisfiesHistoricMVCC(int region, HeapTuple htup,
+							  Snapshot snapshot, Buffer buffer)
 {
 	HeapTupleHeader tuple = htup->t_data;
 	TransactionId xmin = HeapTupleHeaderGetXmin(tuple);
@@ -1883,7 +1887,7 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 	 */
 	else if (tuple->t_infomask & HEAP_XMAX_IS_MULTI)
 	{
-		xmax = HeapTupleGetUpdateXid(tuple);
+		xmax = HeapTupleGetUpdateXid(region, tuple);
 	}
 
 	/* check if it's one of our txids, toplevel is also in there */
@@ -1978,7 +1982,7 @@ HeapTupleSatisfiesVisibility(int region, HeapTuple tup, Snapshot snapshot, Buffe
 			return HeapTupleSatisfiesDirty(region, tup, snapshot, buffer);
 			break;
 		case SNAPSHOT_HISTORIC_MVCC:
-			return HeapTupleSatisfiesHistoricMVCC(tup, snapshot, buffer);
+			return HeapTupleSatisfiesHistoricMVCC(region, tup, snapshot, buffer);
 			break;
 		case SNAPSHOT_NON_VACUUMABLE:
 			return HeapTupleSatisfiesNonVacuumable(tup, snapshot, buffer);

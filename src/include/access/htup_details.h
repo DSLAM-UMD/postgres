@@ -364,12 +364,12 @@ struct HeapTupleHeaderData
  * to resolve the MultiXactId if necessary.  This might involve multixact I/O,
  * so it should only be used if absolutely necessary.
  */
-#define HeapTupleHeaderGetUpdateXid(tup) \
+#define HeapTupleHeaderGetUpdateXid(region, tup) \
 ( \
 	(!((tup)->t_infomask & HEAP_XMAX_INVALID) && \
 	 ((tup)->t_infomask & HEAP_XMAX_IS_MULTI) && \
 	 !((tup)->t_infomask & HEAP_XMAX_LOCK_ONLY)) ? \
-		HeapTupleGetUpdateXid(tup) \
+		HeapTupleGetUpdateXid(region, tup) \
 	: \
 		HeapTupleHeaderGetRawXmax(tup) \
 )

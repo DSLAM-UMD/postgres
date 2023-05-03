@@ -110,10 +110,11 @@ extern MultiXactId MultiXactIdCreateFromMembers(int nmembers,
 
 extern MultiXactId ReadNextMultiXactId(void);
 extern void ReadMultiXactIdRange(MultiXactId *oldest, MultiXactId *next);
-extern bool MultiXactIdIsRunning(MultiXactId multi, bool isLockOnly);
+extern bool MultiXactIdIsRunning(int region, MultiXactId multi, bool isLockOnly);
 extern void MultiXactIdSetOldestMember(void);
-extern int	GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **xids,
-								  bool allow_old, bool isLockOnly);
+extern int	GetMultiXactIdMembers(int region, MultiXactId multi,
+								  MultiXactMember **xids, bool allow_old,
+								  bool isLockOnly);
 extern bool MultiXactIdPrecedes(MultiXactId multi1, MultiXactId multi2);
 extern bool MultiXactIdPrecedesOrEquals(MultiXactId multi1,
 										MultiXactId multi2);

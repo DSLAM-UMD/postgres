@@ -69,6 +69,7 @@
 #include "postgres.h"
 
 #include "access/multixact.h"
+#include "access/remotexact.h"
 #include "access/slru.h"
 #include "access/transam.h"
 #include "access/twophase.h"
@@ -108,11 +109,13 @@
 /* We need four bytes per offset */
 #define MULTIXACT_OFFSETS_PER_PAGE (BLCKSZ / sizeof(MultiXactOffset))
 
-#define MultiXactIdToOffsetPage(xid) \
-	((xid) / (MultiXactOffset) MULTIXACT_OFFSETS_PER_PAGE)
+/* Remotexact */
+#define MultiXactIdToOffsetPage(xid, region) \
+	(((xid / (MultiXactOffset) MULTIXACT_OFFSETS_PER_PAGE) * MAX_REGIONS) + region)
 #define MultiXactIdToOffsetEntry(xid) \
 	((xid) % (MultiXactOffset) MULTIXACT_OFFSETS_PER_PAGE)
-#define MultiXactIdToOffsetSegment(xid) (MultiXactIdToOffsetPage(xid) / SLRU_PAGES_PER_SEGMENT)
+/* Remotexact */
+#define MultiXactIdToOffsetSegment(xid, region) (MultiXactIdToOffsetPage(xid, region) / SLRU_PAGES_PER_SEGMENT)
 
 /*
  * The situation for members is a bit more complex: we store one byte of
@@ -155,9 +158,14 @@
 #define MAX_MEMBERS_IN_LAST_MEMBERS_PAGE \
 		((uint32) ((0xFFFFFFFF % MULTIXACT_MEMBERS_PER_PAGE) + 1))
 
-/* page in which a member is to be found */
-#define MXOffsetToMemberPage(xid) ((xid) / (TransactionId) MULTIXACT_MEMBERS_PER_PAGE)
-#define MXOffsetToMemberSegment(xid) (MXOffsetToMemberPage(xid) / SLRU_PAGES_PER_SEGMENT)
+/* Remotexact
+ * Page in which a member is to be found for the region. 
+ */
+#define MXOffsetToMemberPage(xid, region) \
+	(((xid / (TransactionId) MULTIXACT_MEMBERS_PER_PAGE) * MAX_REGIONS) + region)
+/* Remotexact */
+#define MXOffsetToMemberSegment(xid, region) \
+	(MXOffsetToMemberPage(xid, region) / SLRU_PAGES_PER_SEGMENT)
 
 /* Location (byte offset within page) of flag word for a given member */
 #define MXOffsetToFlagsOffset(xid) \
@@ -364,7 +372,8 @@ static void ExtendMultiXactMember(MultiXactOffset offset, int nmembers);
 static bool MultiXactOffsetWouldWrap(MultiXactOffset boundary,
 									 MultiXactOffset start, uint32 distance);
 static bool SetOffsetVacuumLimit(bool is_startup);
-static bool find_multixact_start(MultiXactId multi, MultiXactOffset *result);
+static bool find_multixact_start(int region, MultiXactId multi,
+								MultiXactOffset *result);
 static void WriteMZeroPageXlogRec(int pageno, uint8 info);
 static void WriteMTruncateXlogRec(Oid oldestMultiDB,
 								  MultiXactId startTruncOff,
@@ -455,11 +464,13 @@ MultiXactIdExpand(MultiXactId multi, TransactionId xid, MultiXactStatus status)
 				multi, xid, mxstatus_to_string(status));
 
 	/*
+	 * Remotexact: Only fetch members of current_region.
 	 * Note: we don't allow for old multis here.  The reason is that the only
 	 * caller of this function does a check that the multixact is no longer
 	 * running.
 	 */
-	nmembers = GetMultiXactIdMembers(multi, &members, false, false);
+	nmembers = GetMultiXactIdMembers(current_region, multi, &members, 
+									false, false);
 
 	if (nmembers < 0)
 	{
@@ -548,7 +559,7 @@ MultiXactIdExpand(MultiXactId multi, TransactionId xid, MultiXactStatus status)
  * a pg_upgraded share-locked tuple.
  */
 bool
-MultiXactIdIsRunning(MultiXactId multi, bool isLockOnly)
+MultiXactIdIsRunning(int region, MultiXactId multi, bool isLockOnly)
 {
 	MultiXactMember *members;
 	int			nmembers;
@@ -560,11 +571,32 @@ MultiXactIdIsRunning(MultiXactId multi, bool isLockOnly)
 	 * "false" here means we assume our callers have checked that the given
 	 * multi cannot possibly come from a pg_upgraded database.
 	 */
-	nmembers = GetMultiXactIdMembers(multi, &members, false, isLockOnly);
+	nmembers = GetMultiXactIdMembers(region, multi, &members, false, isLockOnly);
 
 	if (nmembers <= 0)
 	{
 		debug_elog2(DEBUG2, "IsRunning: no members");
+		return false;
+	}
+
+	/*
+	 * Remotexact - This a multixact from another region. We need to check if the members 
+	 * have committed in the remote region. 
+	*/
+	if (region != current_region)
+	{
+		for (i = 0; i < nmembers; i++) 
+		{
+			if (TransactionIdGetXidCSN(region, members[i].xid) == InProgressXidCSN)
+			{
+				debug_elog3(DEBUG2, "IsRunning remotexact: I (%d) am running!", i);
+				pfree(members);
+				return true;
+			}
+		}
+
+		pfree(members);
+		debug_elog3(DEBUG2, "IsRunning: %u is not running", multi);
 		return false;
 	}
 
@@ -872,7 +904,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 
 	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
 
-	pageno = MultiXactIdToOffsetPage(multi);
+	pageno = MultiXactIdToOffsetPage(multi, current_region);
 	entryno = MultiXactIdToOffsetEntry(multi);
 
 	/*
@@ -908,7 +940,7 @@ RecordNewMultiXact(MultiXactId multi, MultiXactOffset offset,
 
 		Assert(members[i].status <= MultiXactStatusUpdate);
 
-		pageno = MXOffsetToMemberPage(offset);
+		pageno = MXOffsetToMemberPage(offset, current_region);
 		memberoff = MXOffsetToMemberOffset(offset);
 		flagsoff = MXOffsetToFlagsOffset(offset);
 		bshift = MXOffsetToFlagsBitShift(offset);
@@ -1144,8 +1176,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 		 * compilation settings that's roughly after 50k members.  This still
 		 * gives plenty of chances before we get into real trouble.
 		 */
-		if ((MXOffsetToMemberPage(nextOffset) / SLRU_PAGES_PER_SEGMENT) !=
-			(MXOffsetToMemberPage(nextOffset + nmembers) / SLRU_PAGES_PER_SEGMENT))
+		if ((MXOffsetToMemberPage(nextOffset, current_region) / SLRU_PAGES_PER_SEGMENT) !=
+			(MXOffsetToMemberPage(nextOffset + nmembers, current_region) / SLRU_PAGES_PER_SEGMENT))
 			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
 	}
 
@@ -1220,10 +1252,12 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
  * is used only to lock tuples; can be false without loss of correctness,
  * but passing a true means we can return quickly without checking for
  * old updates.
+ * Remotexact: Uses region to get the MultiXactId information.
  */
 int
-GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
-					  bool from_pgupgrade, bool onlyLock)
+GetMultiXactIdMembers(int region, MultiXactId multi,
+					  MultiXactMember **members, bool from_pgupgrade,
+					  bool onlyLock)
 {
 	int			pageno;
 	int			prev_pageno;
@@ -1234,13 +1268,17 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	int			length;
 	int			truelength;
 	int			i;
+	XLogRecPtr  min_lsn = InvalidXLogRecPtr;
 	MultiXactId oldestMXact;
-	MultiXactId nextMXact;
+	MultiXactId nextMXact = InvalidMultiXactId;
 	MultiXactId tmpMXact;
 	MultiXactOffset nextOffset;
 	MultiXactMember *ptr;
 
 	debug_elog3(DEBUG2, "GetMembers: asked for %u", multi);
+
+	if (RegionIsRemote(region))
+		min_lsn = GetRegionLsn(region);
 
 	if (!MultiXactIdIsValid(multi) || from_pgupgrade)
 	{
@@ -1248,24 +1286,30 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 		return -1;
 	}
 
-	/* See if the MultiXactId is in the local cache */
-	length = mXactCacheGetById(multi, members);
-	if (length >= 0)
-	{
-		debug_elog3(DEBUG2, "GetMembers: found %s in the cache",
-					mxid_to_string(multi, length, *members));
-		return length;
+	/* 
+	 * Remotexact:
+	 * See if the MultiXactId is in the local cache for current_region. 
+	 */
+	if (!RegionIsRemote(region)) {
+		length = mXactCacheGetById(multi, members);
+		if (length >= 0)
+		{
+			debug_elog3(DEBUG2, "GetMembers: found %s in the cache",
+						mxid_to_string(multi, length, *members));
+			return length;
+		}
 	}
 
 	/* Set our OldestVisibleMXactId[] entry if we didn't already */
 	MultiXactIdSetOldestVisible();
 
 	/*
+	 * For the current_region,
 	 * If we know the multi is used only for locking and not for updates, then
 	 * we can skip checking if the value is older than our oldest visible
 	 * multi.  It cannot possibly still be running.
 	 */
-	if (onlyLock &&
+	if ( (!RegionIsRemote(region)) && onlyLock &&
 		MultiXactIdPrecedes(multi, OldestVisibleMXactId[MyBackendId]))
 	{
 		debug_elog2(DEBUG2, "GetMembers: a locker-only multi is too old");
@@ -1274,6 +1318,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	}
 
 	/*
+	 * Remotexact: For for the current_reion,
 	 * We check known limits on MultiXact before resorting to the SLRU area.
 	 *
 	 * An ID older than MultiXactState->oldestMultiXactId cannot possibly be
@@ -1288,25 +1333,27 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	 * Acquire it just long enough to grab the current counter values.  We may
 	 * need both nextMXact and nextOffset; see below.
 	 */
-	LWLockAcquire(MultiXactGenLock, LW_SHARED);
+	if (!(RegionIsRemote(region))) {
+		LWLockAcquire(MultiXactGenLock, LW_SHARED);
 
-	oldestMXact = MultiXactState->oldestMultiXactId;
-	nextMXact = MultiXactState->nextMXact;
-	nextOffset = MultiXactState->nextOffset;
+		oldestMXact = MultiXactState->oldestMultiXactId;
+		nextMXact = MultiXactState->nextMXact;
+		nextOffset = MultiXactState->nextOffset;
 
-	LWLockRelease(MultiXactGenLock);
+		LWLockRelease(MultiXactGenLock);
 
-	if (MultiXactIdPrecedes(multi, oldestMXact))
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("MultiXactId %u does no longer exist -- apparent wraparound",
-						multi)));
+		if (MultiXactIdPrecedes(multi, oldestMXact))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("MultiXactId %u does no longer exist -- apparent wraparound",
+							multi)));
 
-	if (!MultiXactIdPrecedes(multi, nextMXact))
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("MultiXactId %u has not been created yet -- apparent wraparound",
-						multi)));
+		if (!MultiXactIdPrecedes(multi, nextMXact))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("MultiXactId %u has not been created yet -- apparent wraparound",
+							multi)));
+	}
 
 	/*
 	 * Find out the offset at which we need to start reading MultiXactMembers
@@ -1344,7 +1391,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 retry:
 	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
 
-	pageno = MultiXactIdToOffsetPage(multi);
+	pageno = MultiXactIdToOffsetPage(multi, region);
 	entryno = MultiXactIdToOffsetEntry(multi);
 
 	slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, multi, InvalidXLogRecPtr);
@@ -1375,12 +1422,12 @@ retry:
 
 		prev_pageno = pageno;
 
-		pageno = MultiXactIdToOffsetPage(tmpMXact);
+		pageno = MultiXactIdToOffsetPage(tmpMXact, region);
 		entryno = MultiXactIdToOffsetEntry(tmpMXact);
 
 		if (pageno != prev_pageno)
 			slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true,
-									   tmpMXact, InvalidXLogRecPtr);
+									   tmpMXact, min_lsn);
 
         offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		offptr += entryno;
@@ -1415,13 +1462,13 @@ retry:
 		int			bshift;
 		int			memberoff;
 
-		pageno = MXOffsetToMemberPage(offset);
+		pageno = MXOffsetToMemberPage(offset, region);
 		memberoff = MXOffsetToMemberOffset(offset);
 
 		if (pageno != prev_pageno)
 		{
 			slotno = SimpleLruReadPage(MultiXactMemberCtl, pageno, true,
-									   multi, InvalidXLogRecPtr);
+									   multi, min_lsn);
 			prev_pageno = pageno;
 		}
 
@@ -1450,9 +1497,12 @@ retry:
 	Assert(truelength > 0);
 
 	/*
-	 * Copy the result into the local cache.
+	 * If the multixact belongs to current_region, 
+	 * copy the result into the local cache.
 	 */
-	mXactCachePut(multi, truelength, ptr);
+	if (!RegionIsRemote(region)) {
+		mXactCachePut(multi, truelength, ptr);
+	}
 
 	debug_elog3(DEBUG2, "GetMembers: no cache for %s",
 				mxid_to_string(multi, truelength, ptr));
@@ -1980,7 +2030,7 @@ MaybeExtendOffsetSlru(void)
 {
 	int			pageno;
 
-	pageno = MultiXactIdToOffsetPage(MultiXactState->nextMXact);
+	pageno = MultiXactIdToOffsetPage(MultiXactState->nextMXact, current_region);
 
 	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
 
@@ -2018,13 +2068,13 @@ StartupMultiXact(void)
 	/*
 	 * Initialize offset's idea of the latest page number.
 	 */
-	pageno = MultiXactIdToOffsetPage(multi);
+	pageno = MultiXactIdToOffsetPage(multi, current_region);
 	MultiXactOffsetCtl->shared->latest_page_number = pageno;
 
 	/*
 	 * Initialize member's idea of the latest page number.
 	 */
-	pageno = MXOffsetToMemberPage(offset);
+	pageno = MXOffsetToMemberPage(offset, current_region);
 	MultiXactMemberCtl->shared->latest_page_number = pageno;
 }
 
@@ -2055,7 +2105,7 @@ TrimMultiXact(void)
 	/*
 	 * (Re-)Initialize our idea of the latest page number for offsets.
 	 */
-	pageno = MultiXactIdToOffsetPage(nextMXact);
+	pageno = MultiXactIdToOffsetPage(nextMXact, current_region);
 	MultiXactOffsetCtl->shared->latest_page_number = pageno;
 
 	/*
@@ -2090,7 +2140,7 @@ TrimMultiXact(void)
 	/*
 	 * (Re-)Initialize our idea of the latest page number for members.
 	 */
-	pageno = MXOffsetToMemberPage(offset);
+	pageno = MXOffsetToMemberPage(offset, current_region);
 	MultiXactMemberCtl->shared->latest_page_number = pageno;
 
 	/*
@@ -2419,7 +2469,7 @@ ExtendMultiXactOffset(MultiXactId multi)
 		multi != FirstMultiXactId)
 		return;
 
-	pageno = MultiXactIdToOffsetPage(multi);
+	pageno = MultiXactIdToOffsetPage(multi, current_region);
 
 	LWLockAcquire(MultiXactOffsetSLRULock, LW_EXCLUSIVE);
 
@@ -2460,7 +2510,7 @@ ExtendMultiXactMember(MultiXactOffset offset, int nmembers)
 		{
 			int			pageno;
 
-			pageno = MXOffsetToMemberPage(offset);
+			pageno = MXOffsetToMemberPage(offset, current_region);
 
 			LWLockAcquire(MultiXactMemberSLRULock, LW_EXCLUSIVE);
 
@@ -2616,7 +2666,7 @@ SetOffsetVacuumLimit(bool is_startup)
 		 * careful not to fail in that case.
 		 */
 		oldestOffsetKnown =
-			find_multixact_start(oldestMultiXactId, &oldestOffset);
+			find_multixact_start(current_region, oldestMultiXactId, &oldestOffset);
 
 		if (oldestOffsetKnown)
 			ereport(DEBUG1,
@@ -2737,7 +2787,7 @@ MultiXactOffsetWouldWrap(MultiXactOffset boundary, MultiXactOffset start,
  * required, the caller has to protect against that.
  */
 static bool
-find_multixact_start(MultiXactId multi, MultiXactOffset *result)
+find_multixact_start(int region, MultiXactId multi, MultiXactOffset *result)
 {
 	MultiXactOffset offset;
 	int			pageno;
@@ -2747,7 +2797,7 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 
 	Assert(MultiXactState->finishedStartup);
 
-	pageno = MultiXactIdToOffsetPage(multi);
+	pageno = MultiXactIdToOffsetPage(multi, region);
 	entryno = MultiXactIdToOffsetEntry(multi);
 
 	/*
@@ -2897,9 +2947,9 @@ SlruScanDirCbFindEarliest(SlruCtl ctl, char *filename, int segpage, void *data)
 static void
 PerformMembersTruncation(MultiXactOffset oldestOffset, MultiXactOffset newOldestOffset)
 {
-	const int	maxsegment = MXOffsetToMemberSegment(MaxMultiXactOffset);
-	int			startsegment = MXOffsetToMemberSegment(oldestOffset);
-	int			endsegment = MXOffsetToMemberSegment(newOldestOffset);
+	const int	maxsegment = MXOffsetToMemberSegment(MaxMultiXactOffset, current_region);
+	int			startsegment = MXOffsetToMemberSegment(oldestOffset, current_region);
+	int			endsegment = MXOffsetToMemberSegment(newOldestOffset, current_region);
 	int			segment = startsegment;
 
 	/*
@@ -2920,7 +2970,8 @@ PerformMembersTruncation(MultiXactOffset oldestOffset, MultiXactOffset newOldest
 }
 
 /*
- * Delete offsets segments [oldest, newOldest)
+ * Delete offsets segments [oldest, newOldest). 
+ * Remotexact: Assume this is only called for the current_region.
  */
 static void
 PerformOffsetsTruncation(MultiXactId oldestMulti, MultiXactId newOldestMulti)
@@ -2933,7 +2984,7 @@ PerformOffsetsTruncation(MultiXactId oldestMulti, MultiXactId newOldestMulti)
 	 * detection.
 	 */
 	SimpleLruTruncate(MultiXactOffsetCtl,
-					  MultiXactIdToOffsetPage(PreviousMultiXactId(newOldestMulti)));
+					  MultiXactIdToOffsetPage(PreviousMultiXactId(newOldestMulti), current_region));
 }
 
 /*
@@ -3021,17 +3072,20 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 	/*
 	 * First, compute the safe truncation point for MultiXactMember. This is
 	 * the starting offset of the oldest multixact.
+	 * 
 	 *
 	 * Hopefully, find_multixact_start will always work here, because we've
 	 * already checked that it doesn't precede the earliest MultiXact on disk.
 	 * But if it fails, don't truncate anything, and log a message.
+	 * Remotexact: We assume we will be invoking this function only in the
+	 * current region.
 	 */
 	if (oldestMulti == nextMulti)
 	{
 		/* there are NO MultiXacts */
 		oldestOffset = nextOffset;
 	}
-	else if (!find_multixact_start(oldestMulti, &oldestOffset))
+	else if (!find_multixact_start(current_region, oldestMulti, &oldestOffset))
 	{
 		ereport(LOG,
 				(errmsg("oldest MultiXact %u not found, earliest MultiXact %u, skipping truncation",
@@ -3049,7 +3103,7 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 		/* there are NO MultiXacts */
 		newOldestOffset = nextOffset;
 	}
-	else if (!find_multixact_start(newOldestMulti, &newOldestOffset))
+	else if (!find_multixact_start(current_region, newOldestMulti, &newOldestOffset))
 	{
 		ereport(LOG,
 				(errmsg("cannot truncate up to MultiXact %u because it does not exist on disk, skipping truncation",
@@ -3062,11 +3116,11 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 		 "offsets [%u, %u), offsets segments [%x, %x), "
 		 "members [%u, %u), members segments [%x, %x)",
 		 oldestMulti, newOldestMulti,
-		 MultiXactIdToOffsetSegment(oldestMulti),
-		 MultiXactIdToOffsetSegment(newOldestMulti),
+		 MultiXactIdToOffsetSegment(oldestMulti, current_region),
+		 MultiXactIdToOffsetSegment(newOldestMulti, current_region),
 		 oldestOffset, newOldestOffset,
-		 MXOffsetToMemberSegment(oldestOffset),
-		 MXOffsetToMemberSegment(newOldestOffset));
+		 MXOffsetToMemberSegment(oldestOffset, current_region),
+		 MXOffsetToMemberSegment(newOldestOffset, current_region));
 
 	/*
 	 * Do truncation, and the WAL logging of the truncation, in a critical
@@ -3318,11 +3372,11 @@ multixact_redo(XLogReaderState *record)
 			 "offsets [%u, %u), offsets segments [%x, %x), "
 			 "members [%u, %u), members segments [%x, %x)",
 			 xlrec.startTruncOff, xlrec.endTruncOff,
-			 MultiXactIdToOffsetSegment(xlrec.startTruncOff),
-			 MultiXactIdToOffsetSegment(xlrec.endTruncOff),
+			 MultiXactIdToOffsetSegment(xlrec.startTruncOff, current_region),
+			 MultiXactIdToOffsetSegment(xlrec.endTruncOff, current_region),
 			 xlrec.startTruncMemb, xlrec.endTruncMemb,
-			 MXOffsetToMemberSegment(xlrec.startTruncMemb),
-			 MXOffsetToMemberSegment(xlrec.endTruncMemb));
+			 MXOffsetToMemberSegment(xlrec.startTruncMemb, current_region),
+			 MXOffsetToMemberSegment(xlrec.endTruncMemb, current_region));
 
 		/* should not be required, but more than cheap enough */
 		LWLockAcquire(MultiXactTruncationLock, LW_EXCLUSIVE);
@@ -3340,7 +3394,7 @@ multixact_redo(XLogReaderState *record)
 		 * yet; insert a suitable value to bypass the sanity test in
 		 * SimpleLruTruncate.
 		 */
-		pageno = MultiXactIdToOffsetPage(xlrec.endTruncOff);
+		pageno = MultiXactIdToOffsetPage(xlrec.endTruncOff, current_region);
 		MultiXactOffsetCtl->shared->latest_page_number = pageno;
 		PerformOffsetsTruncation(xlrec.startTruncOff, xlrec.endTruncOff);
 
@@ -3378,7 +3432,9 @@ pg_get_multixact_members(PG_FUNCTION_ARGS)
 
 		multi = palloc(sizeof(mxact));
 		/* no need to allow for old values here */
-		multi->nmembers = GetMultiXactIdMembers(mxid, &multi->members, false,
+		/* Remotexact: Only fetch multixactids for current_region. */
+		multi->nmembers = GetMultiXactIdMembers(current_region, 
+												mxid, &multi->members, false,
 												false);
 		multi->iter = 0;
 

@@ -319,7 +319,6 @@ SimpleLruZeroPage(SlruCtl ctl, int pageno)
 
 	/* update the stats counter of zeroed pages */
 	pgstat_count_slru_page_zeroed(shared->slru_stats_idx);
-
 	return slotno;
 }
 

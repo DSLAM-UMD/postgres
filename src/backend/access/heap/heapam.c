@@ -98,9 +98,9 @@ static TM_Result heap_lock_updated_tuple(Relation rel, HeapTuple tuple,
 										 LockTupleMode mode);
 static void GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
 								   uint16 *new_infomask2);
-static TransactionId MultiXactIdGetUpdateXid(TransactionId xmax,
+static TransactionId MultiXactIdGetUpdateXid(int region, TransactionId xmax,
 											 uint16 t_infomask);
-static bool DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
+static bool DoesMultiXactIdConflict(int region, MultiXactId multi, uint16 infomask,
 									LockTupleMode lockmode, bool *current_is_member);
 static void MultiXactIdWait(MultiXactId multi, MultiXactStatus status, uint16 infomask,
 							Relation rel, ItemPointer ctid, XLTW_Oper oper,
@@ -1906,6 +1906,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 	bool		valid;
 	bool		skip;
 	GlobalVisState *vistest = NULL;
+	int region = RelationGetRegion(relation);
 
 	/* If this is not the first call, previous call returned a (live!) tuple */
 	if (all_dead)
@@ -2035,7 +2036,7 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 				   blkno);
 			offnum = ItemPointerGetOffsetNumber(&heapTuple->t_data->t_ctid);
 			at_chain_start = false;
-			prev_xmax = HeapTupleHeaderGetUpdateXid(heapTuple->t_data);
+			prev_xmax = HeapTupleHeaderGetUpdateXid(region, heapTuple->t_data);
 			prev_xmax_is_local = HeapTupleHeaderIsXmaxLocal(heapTuple->t_data);
 		}
 		else
@@ -2065,6 +2066,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 	ItemPointerData ctid;
 	TransactionId priorXmax;
 	bool priorXmaxIsLocal = false;
+	int region = RelationGetRegion(relation);
 
 	/*
 	 * table_tuple_get_latest_tid() verified that the passed in tid is valid.
@@ -2163,7 +2165,7 @@ heap_get_latest_tid(TableScanDesc sscan,
 		}
 
 		ctid = tp.t_data->t_ctid;
-		priorXmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
+		priorXmax = HeapTupleHeaderGetUpdateXid(region, tp.t_data);
 		priorXmaxIsLocal = HeapTupleHeaderIsXmaxLocal(tp.t_data);
 		UnlockReleaseBuffer(buffer);
 	}							/* end of loop */
@@ -2959,6 +2961,7 @@ heap_delete(Relation relation, ItemPointer tid,
 	bool		all_visible_cleared = false;
 	HeapTuple	old_key_tuple = NULL;	/* replica identity of the tuple */
 	bool		old_key_copied = false;
+	int region = RelationGetRegion(relation);
 
 	Assert(ItemPointerIsValid(tid));
 
@@ -3009,7 +3012,7 @@ l1:
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 	}
 
-	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), &tp, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(region, &tp, cid, buffer);
 
 	if (result == TM_Invisible)
 	{
@@ -3044,7 +3047,7 @@ l1:
 		{
 			bool		current_is_member = false;
 
-			if (DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
+			if (DoesMultiXactIdConflict(region, (MultiXactId) xwait, infomask,
 										LockTupleExclusive, &current_is_member))
 			{
 				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
@@ -3158,7 +3161,7 @@ l1:
 		 * Remotexact (xid)
 		 * This value is not used anywhere that may cause trouble
 		 */
-		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tp.t_data);
+		tmfd->xmax = HeapTupleHeaderGetUpdateXid(region, tp.t_data);
 		if (result == TM_SelfModified)
 			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), tp.t_data);
 		else
@@ -3470,6 +3473,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 				infomask2_old_tuple,
 				infomask_new_tuple,
 				infomask2_new_tuple;
+	int region = RelationGetRegion(relation);
 
 	Assert(ItemPointerIsValid(otid));
 
@@ -3616,7 +3620,7 @@ heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
 l2:
 	checked_lockers = false;
 	locker_remains = false;
-	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), &oldtup, cid, buffer);
+	result = HeapTupleSatisfiesUpdate(region, &oldtup, cid, buffer);
 
 	/* see below about the "no wait" case */
 	Assert(result != TM_BeingModified || wait);
@@ -3679,7 +3683,7 @@ l2:
 			int			remain;
 			bool		current_is_member = false;
 
-			if (DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
+			if (DoesMultiXactIdConflict(region, (MultiXactId) xwait, infomask,
 										*lockmode, &current_is_member))
 			{
 				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
@@ -3733,7 +3737,7 @@ l2:
 			 * subxact aborts.
 			 */
 			if (!HEAP_XMAX_IS_LOCKED_ONLY(oldtup.t_data->t_infomask))
-				update_xact = HeapTupleGetUpdateXid(oldtup.t_data);
+				update_xact = HeapTupleGetUpdateXid(current_region, oldtup.t_data);
 			else
 				update_xact = InvalidTransactionId;
 
@@ -3831,7 +3835,7 @@ l2:
 		 * Remotexact (xid)
 		 * This value is not used anywhere that may cause trouble
 		 */
-		tmfd->xmax = HeapTupleHeaderGetUpdateXid(oldtup.t_data);
+		tmfd->xmax = HeapTupleHeaderGetUpdateXid(region, oldtup.t_data);
 		if (result == TM_SelfModified)
 			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), oldtup.t_data);
 		else
@@ -4633,6 +4637,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	bool		skip_tuple_lock = false;
 	bool		have_tuple_lock = false;
 	bool		cleared_all_frozen = false;
+	int region = RelationGetRegion(relation);
 
 	*buffer = ReadBuffer(relation, ItemPointerGetBlockNumber(tid));
 	block = ItemPointerGetBlockNumber(tid);
@@ -4669,7 +4674,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 	}
 
 l3:
-	result = HeapTupleSatisfiesUpdate(RelationGetRegion(relation), tuple, cid, *buffer);
+	result = HeapTupleSatisfiesUpdate(region, tuple, cid, *buffer);
 
 	if (result == TM_Invisible)
 	{
@@ -4723,13 +4728,15 @@ l3:
 				MultiXactMember *members;
 
 				/*
+				 * Remotexact: We have already returned TM_OK for remote
+				 * relations. Hence read in the MultiXact in current_region.
 				 * We don't need to allow old multixacts here; if that had
 				 * been the case, HeapTupleSatisfiesUpdate would have returned
 				 * MayBeUpdated and we wouldn't be here.
 				 */
 				nmembers =
-					GetMultiXactIdMembers(xwait, &members, false,
-										  HEAP_XMAX_IS_LOCKED_ONLY(infomask));
+					GetMultiXactIdMembers(current_region, xwait, &members,
+										  false, HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 
 				for (i = 0; i < nmembers; i++)
 				{
@@ -4911,7 +4918,7 @@ l3:
 			 */
 			if (infomask & HEAP_XMAX_IS_MULTI)
 			{
-				if (!DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
+				if (!DoesMultiXactIdConflict(region, (MultiXactId) xwait, infomask,
 											 mode, NULL))
 				{
 					/*
@@ -5164,7 +5171,7 @@ failed:
 		Assert(result != TM_Updated ||
 			   !ItemPointerEquals(&tuple->t_self, &tuple->t_data->t_ctid));
 		tmfd->ctid = tuple->t_data->t_ctid;
-		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tuple->t_data);
+		tmfd->xmax = HeapTupleHeaderGetUpdateXid(region, tuple->t_data);
 		if (result == TM_SelfModified)
 			tmfd->cmax = HeapTupleHeaderGetCmax(RelationIsRemote(relation), tuple->t_data);
 		else
@@ -5473,10 +5480,11 @@ l5:
 		 * MultiXactIdExpand if we weren't to do this, so this check is not
 		 * incurring extra work anyhow.
 		 */
-		if (!MultiXactIdIsRunning(xmax, HEAP_XMAX_IS_LOCKED_ONLY(old_infomask)))
+		if (!MultiXactIdIsRunning(current_region, xmax, 
+				HEAP_XMAX_IS_LOCKED_ONLY(old_infomask)))
 		{
 			if (HEAP_XMAX_IS_LOCKED_ONLY(old_infomask) ||
-				!TransactionIdDidCommit(MultiXactIdGetUpdateXid(xmax,
+				!TransactionIdDidCommit(MultiXactIdGetUpdateXid(current_region, xmax,
 																old_infomask)))
 			{
 				/*
@@ -5910,7 +5918,11 @@ l4:
 				 */
 				Assert(!HEAP_LOCKED_UPGRADED(mytup.t_data->t_infomask));
 
-				nmembers = GetMultiXactIdMembers(rawxmax, &members, false,
+				/*
+				 * Remotexact: This function is only called for relations
+				 * that belong to the current_region.
+				*/
+				nmembers = GetMultiXactIdMembers(current_region, rawxmax, &members, false,
 												 HEAP_XMAX_IS_LOCKED_ONLY(old_infomask));
 				for (i = 0; i < nmembers; i++)
 				{
@@ -6081,7 +6093,7 @@ next:
 		}
 
 		/* tail recursion */
-		priorXmax = HeapTupleHeaderGetUpdateXid(mytup.t_data);
+		priorXmax = HeapTupleHeaderGetUpdateXid(current_region, mytup.t_data);
 		ItemPointerCopy(&(mytup.t_data->t_ctid), &tupid);
 		UnlockReleaseBuffer(buf);
 	}
@@ -6531,6 +6543,8 @@ heap_inplace_update(Relation relation, HeapTuple tuple)
  * FRM_RETURN_IS_MULTI
  *		The return value is a new MultiXactId to set as new Xmax.
  *		(caller must obtain proper infomask bits using GetMultiXactIdHintBits)
+ *
+ * Remotexact - We only call this function on current_region.
  */
 static TransactionId
 FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
@@ -6574,7 +6588,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		 * without any further consideration; but if it contained an update,
 		 * we might need to preserve it.
 		 */
-		if (MultiXactIdIsRunning(multi,
+		if (MultiXactIdIsRunning(current_region, multi,
 								 HEAP_XMAX_IS_LOCKED_ONLY(t_infomask)))
 			ereport(ERROR,
 					(errcode(ERRCODE_DATA_CORRUPTED),
@@ -6589,7 +6603,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 		else
 		{
 			/* replace multi by update xid */
-			xid = MultiXactIdGetUpdateXid(multi, t_infomask);
+			xid = MultiXactIdGetUpdateXid(current_region, multi, t_infomask);
 
 			/* wasn't only a lock, xid needs to be valid */
 			Assert(TransactionIdIsValid(xid));
@@ -6631,7 +6645,7 @@ FreezeMultiXactId(MultiXactId multi, uint16 t_infomask,
 	 */
 
 	nmembers =
-		GetMultiXactIdMembers(multi, &members, false,
+		GetMultiXactIdMembers(current_region, multi, &members, false,
 							  HEAP_XMAX_IS_LOCKED_ONLY(t_infomask));
 	if (nmembers <= 0)
 	{
@@ -7130,10 +7144,13 @@ GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
 	LockTupleMode strongest = LockTupleKeyShare;
 
 	/*
+	 * Remotexact: This function should be called only for relations in
+	 * the current_region.
 	 * We only use this in multis we just created, so they cannot be values
 	 * pre-pg_upgrade.
 	 */
-	nmembers = GetMultiXactIdMembers(multi, &members, false, false);
+	nmembers = GetMultiXactIdMembers(current_region, multi, &members, false, 
+									false);
 
 	for (i = 0; i < nmembers; i++)
 	{
@@ -7199,7 +7216,7 @@ GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
  * necessary.
  */
 static TransactionId
-MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
+MultiXactIdGetUpdateXid(int region, TransactionId xmax, uint16 t_infomask)
 {
 	TransactionId update_xact = InvalidTransactionId;
 	MultiXactMember *members;
@@ -7212,7 +7229,7 @@ MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
 	 * Since we know the LOCK_ONLY bit is not set, this cannot be a multi from
 	 * pre-pg_upgrade.
 	 */
-	nmembers = GetMultiXactIdMembers(xmax, &members, false, false);
+	nmembers = GetMultiXactIdMembers(region, xmax, &members, false, false);
 
 	if (nmembers > 0)
 	{
@@ -7251,9 +7268,9 @@ MultiXactIdGetUpdateXid(TransactionId xmax, uint16 t_infomask)
  * checking the hint bits.
  */
 TransactionId
-HeapTupleGetUpdateXid(HeapTupleHeader tuple)
+HeapTupleGetUpdateXid(int region, HeapTupleHeader tuple)
 {
-	return MultiXactIdGetUpdateXid(HeapTupleHeaderGetRawXmax(tuple),
+	return MultiXactIdGetUpdateXid(region, HeapTupleHeaderGetRawXmax(tuple),
 								   tuple->t_infomask);
 }
 
@@ -7267,7 +7284,7 @@ HeapTupleGetUpdateXid(HeapTupleHeader tuple)
  * transaction is a member of the given multixact.
  */
 static bool
-DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
+DoesMultiXactIdConflict(int region, MultiXactId multi, uint16 infomask,
 						LockTupleMode lockmode, bool *current_is_member)
 {
 	int			nmembers;
@@ -7278,7 +7295,7 @@ DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
 	if (HEAP_LOCKED_UPGRADED(infomask))
 		return false;
 
-	nmembers = GetMultiXactIdMembers(multi, &members, false,
+	nmembers = GetMultiXactIdMembers(region, multi, &members, false,
 									 HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 	if (nmembers >= 0)
 	{
@@ -7364,6 +7381,8 @@ DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
  *
  * Note that in case we return false, the number of remaining members is
  * not to be trusted.
+ * 
+ * Remotexact - We will never call this function for a remote relation. 
  */
 static bool
 Do_MultiXactIdWait(MultiXactId multi, MultiXactStatus status,
@@ -7378,7 +7397,7 @@ Do_MultiXactIdWait(MultiXactId multi, MultiXactStatus status,
 
 	/* for pre-pg_upgrade tuples, no need to sleep at all */
 	nmembers = HEAP_LOCKED_UPGRADED(infomask) ? -1 :
-		GetMultiXactIdMembers(multi, &members, false,
+		GetMultiXactIdMembers(current_region, multi, &members, false,
 							  HEAP_XMAX_IS_LOCKED_ONLY(infomask));
 
 	if (nmembers >= 0)
@@ -7579,8 +7598,8 @@ heap_tuple_needs_freeze(HeapTupleHeader tuple, TransactionId cutoff_xid,
 			int			i;
 
 			/* need to check whether any member of the mxact is too old */
-
-			nmembers = GetMultiXactIdMembers(multi, &members, false,
+			/* Remotexact: Only called for vaccum: Read in current_region. */
+			nmembers = GetMultiXactIdMembers(current_region, multi, &members, false,
 											 HEAP_XMAX_IS_LOCKED_ONLY(tuple->t_infomask));
 
 			for (i = 0; i < nmembers; i++)
@@ -7629,7 +7648,7 @@ HeapTupleHeaderAdvanceLatestRemovedXid(HeapTupleHeader tuple,
 									   TransactionId *latestRemovedXid)
 {
 	TransactionId xmin = HeapTupleHeaderGetXmin(tuple);
-	TransactionId xmax = HeapTupleHeaderGetUpdateXid(tuple);
+	TransactionId xmax = HeapTupleHeaderGetUpdateXid(current_region, tuple);
 	TransactionId xvac = HeapTupleHeaderGetXvac(tuple);
 
 	if (tuple->t_infomask & HEAP_MOVED)
@@ -7738,6 +7757,7 @@ heap_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate)
 				lastfreespace = 0,
 				actualfreespace = 0;
 	bool		bottomup_final_block = false;
+	int region = RelationGetRegion(rel);
 
 	/*
 	 * Remotexact
@@ -7998,7 +8018,7 @@ heap_index_delete_tuples(Relation rel, TM_IndexDeleteOp *delstate)
 			/* Advance to next HOT chain member */
 			Assert(ItemPointerGetBlockNumber(&htup->t_ctid) == blkno);
 			offnum = ItemPointerGetOffsetNumber(&htup->t_ctid);
-			priorXmax = HeapTupleHeaderGetUpdateXid(htup);
+			priorXmax = HeapTupleHeaderGetUpdateXid(region, htup);
 		}
 
 		/* Enable further/final shrinking of deltids for caller */
@@ -10274,6 +10294,7 @@ HeapCheckForSerializableConflictOut(bool visible, Relation relation,
 {
 	TransactionId xid;
 	HTSV_Result htsvResult;
+	int region = RelationGetRegion(relation);
 
 	if (!CheckForSerializableConflictOutNeeded(relation, snapshot))
 		return;
@@ -10300,7 +10321,7 @@ HeapCheckForSerializableConflictOut(bool visible, Relation relation,
 		case HEAPTUPLE_RECENTLY_DEAD:
 		case HEAPTUPLE_DELETE_IN_PROGRESS:
 			if (visible)
-				xid = HeapTupleHeaderGetUpdateXid(tuple->t_data);
+				xid = HeapTupleHeaderGetUpdateXid(region, tuple->t_data);
 			else
 				xid = HeapTupleHeaderGetXmin(tuple->t_data);
 

@@ -417,7 +417,7 @@ rewrite_heap_tuple(RewriteState state,
 		OldToNewMapping mapping;
 
 		memset(&hashkey, 0, sizeof(hashkey));
-		hashkey.xmin = HeapTupleHeaderGetUpdateXid(old_tuple->t_data);
+		hashkey.xmin = HeapTupleHeaderGetUpdateXid(current_region, old_tuple->t_data);
 		hashkey.tid = old_tuple->t_data->t_ctid;
 
 		mapping = (OldToNewMapping)
@@ -1094,7 +1094,7 @@ logical_rewrite_heap_tuple(RewriteState state, ItemPointerData old_tid,
 
 	xmin = HeapTupleHeaderGetXmin(new_tuple->t_data);
 	/* use *GetUpdateXid to correctly deal with multixacts */
-	xmax = HeapTupleHeaderGetUpdateXid(new_tuple->t_data);
+	xmax = HeapTupleHeaderGetUpdateXid(current_region, new_tuple->t_data);
 
 	/*
 	 * Log the mapping iff the tuple has been created recently.

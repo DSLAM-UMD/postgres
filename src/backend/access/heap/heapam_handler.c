@@ -357,6 +357,7 @@ heapam_tuple_lock(Relation relation, ItemPointer tid, Snapshot snapshot,
 	Buffer		buffer;
 	HeapTuple	tuple = &bslot->base.tupdata;
 	bool		follow_updates;
+	int region = RelationGetRegion(relation);
 
 	follow_updates = (flags & TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS) != 0;
 	tmfd->traversed = false;
@@ -545,7 +546,7 @@ tuple_lock_retry:
 				/* updated, so look at the updated row */
 				*tid = tuple->t_data->t_ctid;
 				/* updated row should have xmin matching this xmax */
-				priorXmax = HeapTupleHeaderGetUpdateXid(tuple->t_data);
+				priorXmax = HeapTupleHeaderGetUpdateXid(region, tuple->t_data);
 				ReleaseBuffer(buffer);
 				/* loop back to fetch next in chain */
 			}
@@ -882,7 +883,7 @@ heapam_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap,
 				 * Similar situation to INSERT_IN_PROGRESS case.
 				 */
 				if (!is_system_catalog &&
-					!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tuple->t_data)))
+					!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(current_region, tuple->t_data)))
 					elog(WARNING, "concurrent delete in progress within table \"%s\"",
 						 RelationGetRelationName(OldHeap));
 				/* treat as recently dead */
@@ -1138,7 +1139,7 @@ heapam_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin,
 				 * but not the post-image.  We also get sane results if the
 				 * concurrent transaction never commits.
 				 */
-				if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(targtuple->t_data)))
+				if (TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(current_region, targtuple->t_data)))
 					*deadrows += 1;
 				else
 				{
@@ -1550,7 +1551,7 @@ heapam_index_build_range_scan(Relation heapRelation,
 						break;
 					}
 
-					xwait = HeapTupleHeaderGetUpdateXid(heapTuple->t_data);
+					xwait = HeapTupleHeaderGetUpdateXid(current_region, heapTuple->t_data);
 					if (!TransactionIdIsCurrentTransactionId(xwait))
 					{
 						if (!is_system_catalog)

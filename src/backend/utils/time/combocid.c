@@ -42,6 +42,7 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
+#include "access/remotexact.h"
 #include "access/xact.h"
 #include "miscadmin.h"
 #include "storage/shmem.h"
@@ -132,7 +133,8 @@ HeapTupleHeaderGetCmax(bool is_rel_remote, HeapTupleHeader tup)
 	/* Remotexact */
 	Assert(CritSectionCount > 0 ||
 		   ((is_rel_remote && HeapTupleHeaderIsXmaxLocal(tup)) ||
-		    (!is_rel_remote && TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tup)))));
+		    (!is_rel_remote && TransactionIdIsCurrentTransactionId(
+				HeapTupleHeaderGetUpdateXid(current_region, tup)))));
 
 	if (tup->t_infomask & HEAP_COMBOCID)
 		return GetRealCmax(cid);

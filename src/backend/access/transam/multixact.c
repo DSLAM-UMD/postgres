@@ -2117,9 +2117,17 @@ TrimMultiXact(void)
 	 * rule "write xlog before data," nextMXact successors may carry obsolete,
 	 * nonzero offset values.  Zero those so case 2 of GetMultiXactIdMembers()
 	 * operates normally.
+	 * 
+	 * Remotexact
+	 * 
+	 * When the current region is not the global region, we don't 
+	 * have the initial entries created by the global region. Therefore, the
+	 * first page of the current region does not exist, resulting in an error
+	 * when we try to read the page. To avoid this, we make a hack where we
+	 * skip trimming when nextMXact is the first multixact id + 1
 	 */
 	entryno = MultiXactIdToOffsetEntry(nextMXact);
-	if (entryno != 0)
+	if (entryno != 0 && (current_region == GLOBAL_REGION || nextMXact > FirstMultiXactId + 1))
 	{
 		int			slotno;
 		MultiXactOffset *offptr;

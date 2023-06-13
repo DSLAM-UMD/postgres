@@ -1334,7 +1334,9 @@ GetMultiXactIdMembers(int region, MultiXactId multi,
 	 * Acquire it just long enough to grab the current counter values.  We may
 	 * need both nextMXact and nextOffset; see below.
 	 */
-	if (!(RegionIsRemote(region))) {
+	// TODO (ctring): uncomment this for now to let the code compile. This needs
+	// 				  extra work to make it works with remote xact
+	// if (!(RegionIsRemote(region))) {
 		LWLockAcquire(MultiXactGenLock, LW_SHARED);
 
 		oldestMXact = MultiXactState->oldestMultiXactId;
@@ -1354,7 +1356,7 @@ GetMultiXactIdMembers(int region, MultiXactId multi,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					errmsg("MultiXactId %u has not been created yet -- apparent wraparound",
 							multi)));
-	}
+	// }
 
 	/*
 	 * Find out the offset at which we need to start reading MultiXactMembers

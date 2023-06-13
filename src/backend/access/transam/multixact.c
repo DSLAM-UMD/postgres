@@ -1319,7 +1319,7 @@ GetMultiXactIdMembers(int region, MultiXactId multi,
 	}
 
 	/*
-	 * Remotexact: For for the current_reion,
+	 * Remotexact: For the current_reion,
 	 * We check known limits on MultiXact before resorting to the SLRU area.
 	 *
 	 * An ID older than MultiXactState->oldestMultiXactId cannot possibly be

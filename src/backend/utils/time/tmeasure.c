@@ -4,13 +4,15 @@
 #include "portability/instr_time.h"
 #include "utils/tmeasure.h"
 
+#define MAX_MEASURE 5000
+#define MAX_NAME_LEN 64
+
 typedef struct MeasureData
 {
-  const char*   name;
+  char          name[MAX_NAME_LEN];
   instr_time	duration;
 } MeasureData;
 
-#define MAX_MEASURE 5000
 static MeasureData measure_data[MAX_MEASURE];
 static int measure_data_len = 0;
 
@@ -23,7 +25,7 @@ void start_time_measure(const char *name) {
     Assert(measure_data_len < MAX_MEASURE);
 
     if (name != NULL)
-        measure_data[measure_data_len].name = name;
+        strncpy(measure_data[measure_data_len].name, name, MAX_NAME_LEN);
 
     measure_started = true;
     INSTR_TIME_SET_CURRENT(measure_start);
@@ -33,7 +35,7 @@ void finish_time_measure(const char *name) {
     Assert(measure_started);
 
     if (name != NULL)
-        measure_data[measure_data_len].name = name;
+        strncpy(measure_data[measure_data_len].name, name, MAX_NAME_LEN);
 
     INSTR_TIME_SET_CURRENT(measure_data[measure_data_len].duration);
     INSTR_TIME_SUBTRACT(measure_data[measure_data_len].duration, measure_start);

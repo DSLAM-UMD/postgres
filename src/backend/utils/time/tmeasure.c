@@ -60,7 +60,7 @@ void log_time_measure(void) {
         appendStringInfo(&s, "[\"%s\", %f]", measure_data[i].name, INSTR_TIME_GET_MILLISEC(measure_data[i].duration));
     }
 
-    elog(LOG, "CMD %d [%s]", cid, s.data);
+    ereport(LOG, (errmsg("CMD %d [%s]", cid, s.data), errhidestmt(true), errhidecontext(true)));
 
     measure_data_len = 0;
 }

@@ -66,6 +66,7 @@
 #include "utils/rls.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
+#include "utils/tmeasure.h"
 
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
@@ -486,6 +487,8 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	 */
 	Assert(estate->es_finished ||
 		   (estate->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY));
+
+	log_time_measure();
 
 	/*
 	 * Switch into per-query memory context to run ExecEndPlan

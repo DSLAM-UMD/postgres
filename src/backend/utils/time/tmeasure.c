@@ -47,8 +47,10 @@ void finish_time_measure(const char *name) {
 void log_time_measure(void) {
 	StringInfoData s;
     int i;
-    // Use this command id so that we also count the read-only ones
+
+    // Use 'true' so that the command id can be incremented later
     CommandId cid = GetCurrentCommandId(true);
+    // Increment the command counter so that every logged command has a unique id
     CommandCounterIncrement();
 
     Assert(!measure_started);

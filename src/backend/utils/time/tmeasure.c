@@ -22,14 +22,18 @@ void start_time_measure(const char *name) {
     Assert(!measure_started);
     Assert(measure_data_len < MAX_MEASURE);
 
-    measure_data[measure_data_len].name = name;
+    if (name != NULL)
+        measure_data[measure_data_len].name = name;
 
     measure_started = true;
     INSTR_TIME_SET_CURRENT(measure_start);
 }
 
-void finish_time_measure(void) {
+void finish_time_measure(const char *name) {
     Assert(measure_started);
+
+    if (name != NULL)
+        measure_data[measure_data_len].name = name;
 
     INSTR_TIME_SET_CURRENT(measure_data[measure_data_len].duration);
     INSTR_TIME_SUBTRACT(measure_data[measure_data_len].duration, measure_start);

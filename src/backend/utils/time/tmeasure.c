@@ -49,6 +49,7 @@ void log_time_measure(void) {
     int i;
     // Use this command id so that we also count the read-only ones
     CommandId cid = GetCurrentCommandId(true);
+    CommandCounterIncrement();
 
     Assert(!measure_started);
 

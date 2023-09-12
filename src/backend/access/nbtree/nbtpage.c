@@ -519,10 +519,16 @@ _bt_getroot(Relation rel, int access)
 
 		/*
 		 * Cache the metapage data for next time
+		 *
+		 * Remotexact
+		 * Only cache if the relation is not remote, otherwise the cached data
+		 * may be out-of-sync with the pageserver.
 		 */
-		rel->rd_amcache = MemoryContextAlloc(rel->rd_indexcxt,
-											 sizeof(BTMetaPageData));
-		memcpy(rel->rd_amcache, metad, sizeof(BTMetaPageData));
+		if (!RelationIsRemote(rel)) {
+			rel->rd_amcache = MemoryContextAlloc(rel->rd_indexcxt,
+												sizeof(BTMetaPageData));
+			memcpy(rel->rd_amcache, metad, sizeof(BTMetaPageData));
+		}
 
 		/*
 		 * We are done with the metapage; arrange to release it via first
@@ -684,8 +690,12 @@ _bt_getrootheight(Relation rel)
 		 * If there's no root page yet, _bt_getroot() doesn't expect a cache
 		 * to be made, so just stop here and report the index height is zero.
 		 * (XXX perhaps _bt_getroot() should be changed to allow this case.)
+		 * 
+		 * Remotexact
+		 * Only cache if the relation is not remote, otherwise the cached data
+		 * may be out-of-sync with the pageserver.
 		 */
-		if (metad->btm_root == P_NONE)
+		if (metad->btm_root == P_NONE || RelationIsRemote(rel))
 		{
 			_bt_relbuf(rel, metabuf);
 			return 0;
@@ -748,8 +758,12 @@ _bt_metaversion(Relation rel, bool *heapkeyspace, bool *allequalimage)
 		 * If there's no root page yet, _bt_getroot() doesn't expect a cache
 		 * to be made, so just stop here.  (XXX perhaps _bt_getroot() should
 		 * be changed to allow this case.)
+		 * 
+		 * Remotexact
+		 * If the relation is remote, we can't cache the metapage data, since
+		 * it may be out-of-sync with the pageserver.
 		 */
-		if (metad->btm_root == P_NONE)
+		if (metad->btm_root == P_NONE || RelationIsRemote(rel))
 		{
 			*heapkeyspace = metad->btm_version > BTREE_NOVAC_VERSION;
 			*allequalimage = metad->btm_allequalimage;

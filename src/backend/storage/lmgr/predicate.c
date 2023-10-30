@@ -470,7 +470,7 @@ static void DeleteLockTarget(PREDICATELOCKTARGET *target, uint32 targettaghash);
 static bool TransferPredicateLocksToNewTarget(PREDICATELOCKTARGETTAG oldtargettag,
 											  PREDICATELOCKTARGETTAG newtargettag,
 											  bool removeOld);
-static void PredicateLockAcquire(int region, char relkind, const PREDICATELOCKTARGETTAG *targettag);
+static void PredicateLockAcquire(int region, bool promoted, char relkind, const PREDICATELOCKTARGETTAG *targettag);
 static void DropAllPredicateLocksFromTable(Relation relation,
 										   bool transfer);
 static void SetNewSxactGlobalXmin(void);
@@ -2381,7 +2381,7 @@ CheckAndPromotePredicateLockRequest(int region, char relkind, const PREDICATELOC
 	if (promote)
 	{
 		/* acquire coarsest ancestor eligible for promotion */
-		PredicateLockAcquire(region, relkind, &promotiontag);
+		PredicateLockAcquire(region, true, relkind, &promotiontag);
 		return true;
 	}
 	else
@@ -2527,7 +2527,7 @@ CreatePredicateLock(const PREDICATELOCKTARGETTAG *targettag,
  * any finer-grained locks covered by the new one.
  */
 static void
-PredicateLockAcquire(int region, char relkind, const PREDICATELOCKTARGETTAG *targettag)
+PredicateLockAcquire(int region, bool promoted, char relkind, const PREDICATELOCKTARGETTAG *targettag)
 {
 	uint32		targettaghash;
 	bool		found;
@@ -2583,32 +2583,33 @@ PredicateLockAcquire(int region, char relkind, const PREDICATELOCKTARGETTAG *tar
 	 * TODO(ctring): Make use of the promoting mechanism above to reduce the
 	 * size of the read set.
 	 */
-	switch (GET_PREDICATELOCKTARGETTAG_TYPE(*targettag))
-	{
-		case PREDLOCKTAG_RELATION:
-			CollectRelation(region,
+	if (!promoted) 
+		switch (GET_PREDICATELOCKTARGETTAG_TYPE(*targettag))
+		{
+			case PREDLOCKTAG_RELATION:
+				CollectRelation(region,
+								GET_PREDICATELOCKTARGETTAG_DB(*targettag),
+								GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
+								relkind);
+				break;
+
+			case PREDLOCKTAG_PAGE:
+				CollectPage(region,
 							GET_PREDICATELOCKTARGETTAG_DB(*targettag),
 							GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
+							GET_PREDICATELOCKTARGETTAG_PAGE(*targettag),
 							relkind);
-			break;
+				break;
 
-		case PREDLOCKTAG_PAGE:
-			CollectPage(region,
-						GET_PREDICATELOCKTARGETTAG_DB(*targettag),
-						GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
-						GET_PREDICATELOCKTARGETTAG_PAGE(*targettag),
-						relkind);
-			break;
-
-		case PREDLOCKTAG_TUPLE:
-			CollectTuple(region,
-						 GET_PREDICATELOCKTARGETTAG_DB(*targettag),
-						 GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
-						 GET_PREDICATELOCKTARGETTAG_PAGE(*targettag),
-						 GET_PREDICATELOCKTARGETTAG_OFFSET(*targettag),
-						 relkind);
-			break;
-	}
+			case PREDLOCKTAG_TUPLE:
+				CollectTuple(region,
+							GET_PREDICATELOCKTARGETTAG_DB(*targettag),
+							GET_PREDICATELOCKTARGETTAG_RELATION(*targettag),
+							GET_PREDICATELOCKTARGETTAG_PAGE(*targettag),
+							GET_PREDICATELOCKTARGETTAG_OFFSET(*targettag),
+							relkind);
+				break;
+		}
 }
 
 
@@ -2631,7 +2632,7 @@ PredicateLockRelation(Relation relation, Snapshot snapshot)
 	SET_PREDICATELOCKTARGETTAG_RELATION(tag,
 										relation->rd_node.dbNode,
 										relation->rd_id);
-	PredicateLockAcquire(RelationGetRegion(relation), relation->rd_rel->relkind, &tag);
+	PredicateLockAcquire(RelationGetRegion(relation), false, relation->rd_rel->relkind, &tag);
 }
 
 /*
@@ -2655,7 +2656,7 @@ PredicateLockPage(Relation relation, BlockNumber blkno, Snapshot snapshot)
 									relation->rd_node.dbNode,
 									relation->rd_id,
 									blkno);
-	PredicateLockAcquire(RelationGetRegion(relation), relation->rd_rel->relkind, &tag);
+	PredicateLockAcquire(RelationGetRegion(relation), false, relation->rd_rel->relkind, &tag);
 }
 
 /*
@@ -2707,7 +2708,7 @@ PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
 									 relation->rd_id,
 									 ItemPointerGetBlockNumber(tid),
 									 ItemPointerGetOffsetNumber(tid));
-	PredicateLockAcquire(RelationGetRegion(relation), relation->rd_rel->relkind, &tag);
+	PredicateLockAcquire(RelationGetRegion(relation), false, relation->rd_rel->relkind, &tag);
 }
 
 

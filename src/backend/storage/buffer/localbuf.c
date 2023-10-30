@@ -214,7 +214,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 
 					*foundPtr = false;
 
-					ereport(DEBUG1, errmsg("Found non-usable buffer %d for (%d, %d, %d). "
+					ereport(DEBUG2, errmsg("Found non-usable buffer %d for (%d, %d, %d). "
 										   "region = %d. dirty = %u. page_lsn = %X/%X. "
 										   "region_lsn = %X/%X. my_lxid = %u. lxid = %u",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,
@@ -222,7 +222,7 @@ LocalBufferAlloc(SMgrRelation smgr, ForkNumber forkNum, BlockNumber blockNum,
 										   LSN_FORMAT_ARGS(region_lsn), MyProc->lxid, remote_bufHdr->lxid));
 				}
 				else
-					ereport(DEBUG1, errmsg("Found usable buffer %d for (%d, %d, %d). "
+					ereport(DEBUG2, errmsg("Found usable buffer %d for (%d, %d, %d). "
 										   "region = %d. dirty = %u. page_lsn = %X/%X. "
 										   "region_lsn = %X/%X. my_lxid = %u. lxid = %u",
 										   b, smgr->smgr_rnode.node.relNode, forkNum, blockNum,

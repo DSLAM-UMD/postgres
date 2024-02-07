@@ -46,15 +46,25 @@ extern PGDLLIMPORT get_all_region_lsns_hook_type get_all_region_lsns_hook;
 #define GetRegionLsn(r) (get_region_lsn_hook == NULL ? InvalidXLogRecPtr : (*get_region_lsn_hook)(r))
 #define GetAllRegionLsns() (get_all_region_lsns_hook == NULL ? NULL : (*get_all_region_lsns_hook)())
 
+typedef enum MultiRegionXactState
+{
+	MULTI_REGION_XACT_NONE,		/* not a multi-region transaction */
+	MULTI_REGION_XACT_STARTED,	/* accessed some remote data */
+	MULTI_REGION_XACT_COMMITTING,	/* called prepare for the loca portion the multi-region transaction */
+} MultiRegionXactState;
+
 typedef struct
 {
-	void		(*collect_relation) (int region, Oid dbid, Oid relid, char relkind);
-	void		(*collect_page) (int region, Oid dbid, Oid relid, BlockNumber blkno, char relkind);
-	void		(*collect_tuple) (int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset, char relkind);
-	void		(*collect_insert) (Relation relation, HeapTuple newtuple);
-	void		(*collect_update) (Relation relation, HeapTuple oldtuple, HeapTuple newtuple);
-	void		(*collect_delete) (Relation relation, HeapTuple oldtuple);
-	void		(*execute_remote_xact) (void);
+	void					(*collect_relation) (int region, Oid dbid, Oid relid, char relkind);
+	void					(*collect_page) (int region, Oid dbid, Oid relid, BlockNumber blkno, char relkind);
+	void					(*collect_tuple) (int region, Oid dbid, Oid relid, BlockNumber blkno, OffsetNumber offset, char relkind);
+	void					(*collect_insert) (Relation relation, HeapTuple newtuple);
+	void					(*collect_update) (Relation relation, HeapTuple oldtuple, HeapTuple newtuple);
+	void					(*collect_delete) (Relation relation, HeapTuple oldtuple);
+	MultiRegionXactState	(*get_multi_region_xact_state) (void);
+	void					(*prepare_multi_region_xact) (void);
+	bool					(*commit_multi_region_xact) (void);
+	void					(*report_multi_region_xact_error) (void);
 } RemoteXactHook;
 
 extern void SetRemoteXactHook(const RemoteXactHook *hook);
@@ -66,7 +76,9 @@ extern void CollectInsert(Relation relation, HeapTuple newtuple);
 extern void CollectUpdate(Relation relation, HeapTuple oldtuple, HeapTuple newtuple);
 extern void CollectDelete(Relation relation, HeapTuple oldtuple);
 
-extern bool is_surrogate;
-extern void PreCommit_ExecuteRemoteXact(void);
+extern MultiRegionXactState GetMultiRegionXactState(void);
+extern void PrepareMultiRegionXact(void);
+extern bool CommitMultiRegionXact(void);
+extern void ReportMultiRegionXactError(void);
 
 #endif							/* REMOTEXACT_H */

@@ -8,7 +8,7 @@
  *
  *	  The postmaster also manages system-wide operations such as
  *	  startup and shutdown. The postmaster itself doesn't do those
- *	  operations, mind you --- it just forks off a subprocess to do them
+ *	  operations, mind you --- it just forks off a subprocess to do them	
  *	  at the right times.  It also takes care of resetting the system
  *	  if a backend crashes.
  *
@@ -2655,6 +2655,13 @@ InitProcessGlobals(void)
 	MyProcPid = getpid();
 	MyStartTimestamp = GetCurrentTimestamp();
 	MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
+
+	/*
+	 * Remotexact
+	 * Set this for multi-region 2PC.
+	 */
+	MyRemoteXactId = malloc(10);
+	sprintf(MyRemoteXactId, "rx%d", MyProcPid);
 
 	/*
 	 * Set a different seed for random() in every process.  We want something

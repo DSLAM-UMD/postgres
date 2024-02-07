@@ -38,6 +38,8 @@
 
 #include "access/parallel.h"
 #include "access/printtup.h"
+#include "access/remotexact.h"
+#include "access/twophase.h"
 #include "access/xact.h"
 #include "catalog/pg_type.h"
 #include "commands/async.h"
@@ -2747,6 +2749,28 @@ finish_xact_command(void)
 #endif
 
 		xact_started = false;
+	}
+
+	/*
+	 * Remotexact
+	 * If we are in a multi-region transaction, commit the transaction
+	 * via the transaction server using CommitMultiRegionXact. Depending
+	 * on the result, either commit the prepared transaction or abort it and
+	 * emit the error.
+	 */
+	if (GetMultiRegionXactState() == MULTI_REGION_XACT_COMMITTING)
+	{
+		StartTransactionCommand();
+		if (CommitMultiRegionXact()) 
+		{
+			FinishPreparedTransaction(MyRemoteXactId, true);
+		}
+		else
+		{
+			FinishPreparedTransaction(MyRemoteXactId, false);
+			ReportMultiRegionXactError();
+		}
+		CommitTransactionCommand();
 	}
 }
 

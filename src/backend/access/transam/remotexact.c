@@ -18,13 +18,11 @@ int current_region;
 get_region_lsn_hook_type get_region_lsn_hook = NULL;
 get_all_region_lsns_hook_type get_all_region_lsns_hook = NULL;
 
-bool		is_surrogate = false;
-
 static const RemoteXactHook *remote_xact_hook = NULL;
 
 /* Only call if a hook is set and is in multi-region mode */
 #define CallHook(name) \
-	if (remote_xact_hook && IsMultiRegion()) remote_xact_hook->name
+	if (remote_xact_hook && IsMultiRegion()) return remote_xact_hook->name
 
 void
 SetRemoteXactHook(const RemoteXactHook *hook)
@@ -68,11 +66,28 @@ CollectDelete(Relation relation, HeapTuple oldtuple)
 	CallHook(collect_delete)(relation, oldtuple);
 }
 
-void
-PreCommit_ExecuteRemoteXact(void)
+MultiRegionXactState
+GetMultiRegionXactState(void)
 {
-	if (!is_surrogate)
-		CallHook(execute_remote_xact)();
+	CallHook(get_multi_region_xact_state)();
+	return MULTI_REGION_XACT_NONE;
+}
 
-	is_surrogate = false;
+void
+PrepareMultiRegionXact(void)
+{
+	CallHook(prepare_multi_region_xact)();
+}
+
+bool
+CommitMultiRegionXact(void)
+{
+	CallHook(commit_multi_region_xact)();
+	return true;
+}
+
+void
+ReportMultiRegionXactError(void)
+{
+	CallHook(report_multi_region_xact_error)();
 }

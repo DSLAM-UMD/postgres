@@ -189,6 +189,8 @@ extern PGDLLIMPORT struct Port *MyProcPort;
 extern PGDLLIMPORT struct Latch *MyLatch;
 extern PGDLLIMPORT int32 MyCancelKey;
 extern PGDLLIMPORT int MyPMChildSlot;
+/* Remotexact */
+extern PGDLLIMPORT char *MyRemoteXactId;
 
 extern PGDLLIMPORT char OutputFileName[];
 extern PGDLLIMPORT char my_exec_path[];

@@ -2152,6 +2152,7 @@ StartTransaction(void)
 	ShowTransactionState("StartTransaction");
 }
 
+static void PrepareTransaction(void);
 
 /*
  *	CommitTransaction
@@ -2170,6 +2171,28 @@ CommitTransaction(void)
 	/* Enforce parallel mode restrictions during parallel worker commit. */
 	if (is_parallel_worker)
 		EnterParallelMode();
+	else if (GetMultiRegionXactState() == MULTI_REGION_XACT_STARTED) {
+		/*
+		 * Remotexact
+		 * If this is a multi-region transaction, we need to prepare the
+		 * transaction here instead of commit. The main loop in postgres.c will
+		 * ask the transaction server to start the multi-region commit protocol
+		 * and then commit/abort this prepared transaction accordingly.
+		 */
+		prepareGID = MyRemoteXactId;
+
+		/*
+		 * Remotexact
+		 * This must be called before calling PrepareTransaction because it
+		 * prevents PrepareTransaction from cleaning up the rwset buffer, which
+		 * is needed later for the multi-region commit protocol.
+		 */
+		PrepareMultiRegionXact();
+
+		PrepareTransaction();
+
+		return;
+	}
 
 	ShowTransactionState("CommitTransaction");
 
@@ -2253,29 +2276,7 @@ CommitTransaction(void)
 	 * the leader's transaction and its serializable state will live on.
 	 */
 	if (!is_parallel_worker)
-	{
 		PreCommit_CheckForSerializationFailure();
-
-		/*
-		 * Remotexact
-		 *
-		 * It might be less intrusive to register this function as a callback for the
-		 * XACT_EVENT_PRE_COMMIT event. However, if we do that, it is still possible
-		 * for the transaction to be aborted (e.g. in PreCommit_CheckForSerializationFailure)
-		 * after the callback returns.
-		 * 
-		 * This is not acceptable because PreCommit_ExecuteRemoteXact will log a vote for
-		 * commit in the xact server, and we don't want the transaction to change its decision
-		 * after the vote is made.  
-		 * 
-		 * Putting it here after the check for serialization failure above also allows
-		 * SSI to catch serialization error before we do any cross-region communication.
-		 * 
-		 * This isn't called in PrepareTransaction because we only want to do this
-		 * at the coordinator.
-		 */
-		PreCommit_ExecuteRemoteXact();
-	}
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
@@ -3191,7 +3192,7 @@ CommitTransactionCommand(void)
 			/*
 			 * We are completing a "PREPARE TRANSACTION" command.  Do it and
 			 * return to the idle state.
-			 */
+			 			 */
 		case TBLOCK_PREPARE:
 			PrepareTransaction();
 			s->blockState = TBLOCK_DEFAULT;

@@ -2704,6 +2704,13 @@ InitProcessGlobals(void)
 	MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
 
 	/*
+	 * Remotexact
+	 * Set this for multi-region 2PC.
+	 */
+	MyRemoteXactId = malloc(10);
+	sprintf(MyRemoteXactId, "rx%d", MyProcPid);
+
+	/*
 	 * Set a different global seed in every process.  We want something
 	 * unpredictable, so if possible, use high-quality random bits for the
 	 * seed.  Otherwise, fall back to a seed based on timestamp and PID.

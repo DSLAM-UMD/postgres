@@ -48,6 +48,17 @@ struct Port *MyProcPort;
 int32		MyCancelKey;
 int			MyPMChildSlot;
 
+/* 
+ * Remotexact
+ * This is the ID used for the transient prepared transaction while committing
+ * a multi-region transaction. It is derived from the backend pid. There will always
+ * be only one such transaction for a backend so we can reuse the same ID for all such
+ * transactions on the same backend. After a crash, the transaction server attempts to
+ * commit/abort all prepared transactions so the backend with the same pid will be able
+ * to use this ID again.
+ */
+char        *MyRemoteXactId = NULL;
+
 /*
  * MyLatch points to the latch that should be used for signal handling by the
  * current process. It will either point to a process local latch if the

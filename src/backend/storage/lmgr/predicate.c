@@ -289,6 +289,12 @@
 #define SxactIsPartiallyReleased(sxact) (((sxact)->flags & SXACT_FLAG_PARTIALLY_RELEASED) != 0)
 
 /*
+ * Remotexact
+ * Macro to check for multi-region transaction.
+ */
+#define SxactIsMultiRegion(sxact) (((sxact)->flags & SXACT_FLAG_MULTI_REGION) != 0)
+
+/*
  * Compute the hash code associated with a PREDICATELOCKTARGETTAG.
  *
  * To avoid unnecessary recomputations of the hash code, we try to do this
@@ -4291,6 +4297,27 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	}
 
 	/*
+	 * Remotexact
+	 * If we have a rw dependency on a PREAPARED muti-region xact, it could be
+	 * a potential conflict and so we need to abort ourselves.
+	 *
+	 * It may be a false conflict and there may not be an edge in the remote
+	 * region, however, we have no way to know that without accessing the
+	 * dependency graph of the remote region. So we will abort to ensure
+	 * serializability.
+	 */
+
+	if (SxactIsPrepared(sxact) && SxactIsMultiRegion(sxact))
+	{
+		LWLockRelease(SerializableXactHashLock);
+		ereport(ERROR,
+				(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
+				 errmsg("could not serialize access due to read/write dependencies among transactions"),
+				 errdetail_internal("Reason code: Canceled on conflict out to prepared multi-region transaction."),
+				 errhint("The transaction might succeed if retried.")));
+	}
+
+	/*
 	 * If this is a read-only transaction and the writing transaction has
 	 * committed, and it doesn't have a rw-conflict to a transaction which
 	 * committed before it, no conflict.
@@ -4903,6 +4930,7 @@ void
 PreCommit_CheckForSerializationFailure(void)
 {
 	RWConflict	nearConflict;
+	PGPROC *proc;
 
 	if (MySerializableXact == InvalidSerializableXact)
 		return;
@@ -4983,6 +5011,15 @@ PreCommit_CheckForSerializationFailure(void)
 	MySerializableXact->prepareSeqNo = ++(PredXact->LastSxactCommitSeqNo);
 	MySerializableXact->flags |= SXACT_FLAG_PREPARED;
 
+	/* Remotexact
+	 * Mark the transaction as multi-region if necessary. This flag is used to
+	 * abort any future reads to avoid serializability failures.
+	 * The isRemoteXact flag captures both initiating and validating xacts.
+	*/
+	proc = MyProc;
+	if (proc->isRemoteXact) {
+		MySerializableXact->flags |= SXACT_FLAG_MULTI_REGION;
+	}
 	LWLockRelease(SerializableXactHashLock);
 }
 

@@ -289,12 +289,6 @@
 #define SxactIsPartiallyReleased(sxact) (((sxact)->flags & SXACT_FLAG_PARTIALLY_RELEASED) != 0)
 
 /*
- * Remotexact
- * Macro to check for multi-region transaction.
- */
-#define SxactIsMultiRegion(sxact) (((sxact)->flags & SXACT_FLAG_MULTI_REGION) != 0)
-
-/*
  * Compute the hash code associated with a PREDICATELOCKTARGETTAG.
  *
  * To avoid unnecessary recomputations of the hash code, we try to do this
@@ -4307,7 +4301,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	 * serializability.
 	 */
 
-	if (SxactIsPrepared(sxact) && SxactIsMultiRegion(sxact))
+	if (SxactIsPrepared(sxact))
 	{
 		LWLockRelease(SerializableXactHashLock);
 		ereport(ERROR,
@@ -5017,9 +5011,6 @@ PreCommit_CheckForSerializationFailure(void)
 	 * The isRemoteXact flag captures both initiating and validating xacts.
 	*/
 	proc = MyProc;
-	if (proc->isRemoteXact) {
-		MySerializableXact->flags |= SXACT_FLAG_MULTI_REGION;
-	}
 	LWLockRelease(SerializableXactHashLock);
 }
 

@@ -137,13 +137,6 @@ typedef struct SERIALIZABLEXACT
  * reference to it.  It'll be recycled by the leader at end-of-transaction.
  */
 #define SXACT_FLAG_PARTIALLY_RELEASED	0x00000800
-/*
- * Remotexact
- * The following flag indicates that the transaction is a multi-region
- * transaction that has either accessed remote data or is a validation
- * transaction from a remote region.
- */
-#define SXACT_FLAG_MULTI_REGION		0x00001000
 
 /*
  * The following types are used to provide an ad hoc list for holding

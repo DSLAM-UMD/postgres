@@ -139,6 +139,13 @@ typedef struct SERIALIZABLEXACT
 #define SXACT_FLAG_PARTIALLY_RELEASED	0x00000800
 
 /*
+ * Remotexact 
+ * The flag indicates that the transaction has been prepared and
+ * has accessed remote data.
+ */
+#define SXACT_FLAG_REMOTE_PREPARED 0x00001000
+
+/*
  * The following types are used to provide an ad hoc list for holding
  * SERIALIZABLEXACT objects.  An HTAB is overkill, since there is no need to
  * access these by key -- there are direct pointers to these objects where

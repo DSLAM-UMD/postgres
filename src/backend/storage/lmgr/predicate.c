@@ -289,6 +289,12 @@
 #define SxactIsPartiallyReleased(sxact) (((sxact)->flags & SXACT_FLAG_PARTIALLY_RELEASED) != 0)
 
 /*
+ * Remotexact 
+ * Transaction is prepared and accesses remote data.
+*/
+#define SxactIsRemotePrepared(sxact) (((sxact)->flags & SXACT_FLAG_REMOTE_PREPARED) != 0)
+
+/*
  * Compute the hash code associated with a PREDICATELOCKTARGETTAG.
  *
  * To avoid unnecessary recomputations of the hash code, we try to do this
@@ -4292,7 +4298,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 
 	/*
 	 * Remotexact
-	 * If we have a rw dependency on a PREAPARED muti-region xact, it could be
+	 * If we have a rw dependency on a PREAPARED remote xact, it could be
 	 * a potential conflict and so we need to abort ourselves.
 	 *
 	 * It may be a false conflict and there may not be an edge in the remote
@@ -4301,7 +4307,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	 * serializability.
 	 */
 
-	if (SxactIsPrepared(sxact))
+	if (SxactIsRemotePrepared(sxact))
 	{
 		LWLockRelease(SerializableXactHashLock);
 		ereport(ERROR,
@@ -4924,7 +4930,7 @@ void
 PreCommit_CheckForSerializationFailure(void)
 {
 	RWConflict	nearConflict;
-	PGPROC *proc;
+	PGPROC 		*proc;
 
 	if (MySerializableXact == InvalidSerializableXact)
 		return;
@@ -5011,6 +5017,9 @@ PreCommit_CheckForSerializationFailure(void)
 	 * The isRemoteXact flag captures both initiating and validating xacts.
 	*/
 	proc = MyProc;
+	pg_read_barrier();
+	if (proc->isRemoteXact)
+		MySerializableXact->flags |= SXACT_FLAG_REMOTE_PREPARED;
 	LWLockRelease(SerializableXactHashLock);
 }
 

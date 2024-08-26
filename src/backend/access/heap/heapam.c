@@ -3150,7 +3150,7 @@ l1:
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
-		if (!HeapTupleSatisfiesVisibility(&tp, crosscheck, buffer))
+		if (!HeapTupleSatisfiesVisibility(region, &tp, crosscheck, buffer))
 			result = TM_Updated;
 	}
 
@@ -3824,7 +3824,7 @@ l2:
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
 		/* Perform additional check for transaction-snapshot mode RI updates */
-		if (!HeapTupleSatisfiesVisibility(&oldtup, crosscheck, buffer))
+		if (!HeapTupleSatisfiesVisibility(region, &oldtup, crosscheck, buffer))
 			result = TM_Updated;
 	}
 
